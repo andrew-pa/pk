@@ -2,9 +2,9 @@
 #![allow(unused_variables)]
 
 #[derive(Copy,Clone,Debug)]
-struct Piece {
-    source: usize,
-    start: usize, length: usize
+pub struct Piece {
+    pub source: usize,
+    pub start: usize, pub length: usize
 }
 
 impl Piece {
@@ -16,13 +16,13 @@ impl Piece {
 }
 
 #[derive(Debug)]
-enum Change {
+pub enum Change {
     Insert {
-        piece_index: usize,
+        piece_index: usize, new: Piece
     },
     Modify {
         piece_index: usize,
-        old: Piece
+        old: Piece, new: Piece
     },
     Delete {
         piece_index: usize,
@@ -30,22 +30,42 @@ enum Change {
     }
 }
 
-type Action=Vec<Change>;
+#[derive(Debug)]
+pub struct Action {
+    changes: Vec<Change>,
+    id: usize
+}
+
+impl Action {
+    fn new(pt: &mut PieceTable) -> Action {
+        let id = pt.next_action_id;
+        pt.next_action_id += 1;
+        Action {
+            changes: Vec::new(), id
+        }
+    }
+
+    fn push(&mut self, c: Change) {
+        self.changes.push(c);
+    }
+
+    fn iter(&self) -> impl DoubleEndedIterator<Item=&Change> {
+        self.changes.iter()
+    }
+}
+
 
 #[derive(Debug)]
 pub struct PieceTable {
-    sources: Vec<String>,
-    pieces: Vec<Piece>,
-    history: Vec<Action>
+    pub sources: Vec<String>,
+    pub pieces: Vec<Piece>,
+    pub history: Vec<Action>,
+    pub next_action_id: usize
 }
 
 impl Default for PieceTable {
     fn default() -> PieceTable {
-        PieceTable {
-            sources: vec![String::from("Hello, world!")],
-            pieces: vec![ Piece { source: 0, start: 0, length: 13 } ],
-            history: Vec::new()
-        }
+        PieceTable::with_text("Hello, world!\nthis is a test\nline!\n")
     }
 }
 
@@ -75,16 +95,30 @@ impl<'table> PieceTable {
         PieceTable {
             sources: vec![s.to_string()],
             pieces: vec![ Piece { source: 0, start: 0, length: s.len() } ],
-            history: Vec::new()
+            history: Vec::new(), next_action_id: 1
+        }
+    }
+
+    fn enact_change(&mut self, change: &Change) {
+        match *change {
+            Change::Insert { piece_index, new } => {
+                self.pieces.insert(piece_index, new);
+            },
+            Change::Modify { piece_index, new, .. } => {
+                self.pieces[piece_index] = new;
+            },
+            Change::Delete { piece_index, .. } => {
+                self.pieces.remove(piece_index);
+            },
         }
     }
 
     fn reverse_change(&mut self, change: &Change) {
         match *change {
-            Change::Insert { piece_index } => {
+            Change::Insert { piece_index, .. } => {
                 self.pieces.remove(piece_index);
             },
-            Change::Modify { piece_index, old } => {
+            Change::Modify { piece_index, old, .. } => {
                 self.pieces[piece_index] = old;
             },
             Change::Delete { piece_index, old } => {
@@ -105,21 +139,21 @@ impl<'table> PieceTable {
         let mut ix = 0usize;
         let new_piece = Piece { source: self.sources.len(), start: 0, length: s.len() };
         self.sources.push(String::from(s));
-        let mut action = Action::new();
+        let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
             println!("{} {:?}", i, p);
             if index >= ix && index < ix+p.length {
                 if index == ix { // we're inserting at the start of this piece
                     self.pieces.insert(i, new_piece);
-                    action.push(Change::Insert{piece_index: i});
+                    action.push(Change::Insert{piece_index: i, new: new_piece});
                 } else if index == ix+p.length { // we're inserting at the end of this piece
                     self.pieces.insert(i+1, new_piece);
-                    action.push(Change::Insert{piece_index: i+1});
+                    action.push(Change::Insert{piece_index: i+1, new: new_piece});
                 } else { //insertion in the middle
                     let (left,right) = p.split(index-ix);
-                    action.push(Change::Modify{piece_index: i, old: p.clone()});
-                    action.push(Change::Insert{piece_index: i+1});
-                    action.push(Change::Insert{piece_index: i+2});
+                    action.push(Change::Modify{piece_index: i, old: p.clone(), new: left.clone()});
+                    action.push(Change::Insert{piece_index: i+1, new: new_piece});
+                    action.push(Change::Insert{piece_index: i+2, new: right});
                     self.pieces[i] = left;
                     self.pieces.insert(i+1, new_piece);
                     self.pieces.insert(i+2, right);
@@ -134,21 +168,23 @@ impl<'table> PieceTable {
     pub fn insert_mutator(&mut self, index: usize) -> TableMutator {
         let mut ix = 0usize;
         let mut insertion_piece_index: Option<usize> = None;
-        let mut action = Action::new();
+        let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
             if index >= ix && index < ix+p.length {
                 if index == ix { // we're inserting at the start of this piece
-                    self.pieces.insert(i, Piece { source: self.sources.len(), start: 0, length: 0 });
+                    let new = Piece { source: self.sources.len(), start: 0, length: 0 };
+                    self.pieces.insert(i, new);
                     self.sources.push(String::new());
-                    action.push(Change::Insert { piece_index: i });
+                    action.push(Change::Insert { piece_index: i, new });
                     insertion_piece_index = Some(i);
                 } else if index == ix+p.length-1 { // we're inserting at the end of this piece
                     if self.sources[p.source].len() ==
                         p.start+p.length { // we're inserting at the current end of the piece in the source
                         insertion_piece_index = Some(i);
                     } else {
-                        self.pieces.insert(i+1, Piece { source: self.sources.len(), start: 0, length: 0 });
-                        action.push(Change::Insert { piece_index: i+1 });
+                        let new = Piece { source: self.sources.len(), start: 0, length: 0 }; 
+                        self.pieces.insert(i+1, new);
+                        action.push(Change::Insert { piece_index: i+1, new });
                         self.sources.push(String::new());
                         insertion_piece_index = Some(i+1);
                     }
@@ -156,9 +192,9 @@ impl<'table> PieceTable {
                     let (a,c) = p.split(index-ix);
                     let b = Piece { source: self.sources.len(), start: 0, length: 0 };
                     self.sources.push(String::new());
-                    action.push(Change::Modify { piece_index: i, old: p.clone() });
-                    action.push(Change::Insert { piece_index: i+1 });
-                    action.push(Change::Insert { piece_index: i+2 });
+                    action.push(Change::Modify { piece_index: i, old: p.clone(), new: a.clone() });
+                    action.push(Change::Insert { piece_index: i+1, new: b });
+                    action.push(Change::Insert { piece_index: i+2, new: c });
                     self.pieces[i] = a;
                     self.pieces.insert(i+1, b);
                     self.pieces.insert(i+2, c);
@@ -180,7 +216,7 @@ impl<'table> PieceTable {
         let mut end_piece:   Option<(usize,usize)> = None;
         let mut mid_pieces:  Vec<usize>            = Vec::new();
         let mut global_index                       = 0usize;
-        let mut action = Action::new();
+        let mut action = Action::new(self);
 
         for (i,p) in self.pieces.iter().enumerate() {
             if start < global_index && end >= global_index+p.length {
@@ -193,8 +229,8 @@ impl<'table> PieceTable {
                     } else {
                         let (left_keep, deleted_right) = p.split(start-global_index);
                         let (_deleted, right_keep) = deleted_right.split(end-(global_index+left_keep.length-1));
-                        action.push(Change::Modify { piece_index: i, old: p.clone() });
-                        action.push(Change::Insert { piece_index: i+1 });
+                        action.push(Change::Modify { piece_index: i, old: p.clone(), new: left_keep });
+                        action.push(Change::Insert { piece_index: i+1, new: right_keep });
                         self.pieces[i] = left_keep;
                         self.pieces.insert(i+1, right_keep);
                     }
@@ -214,11 +250,14 @@ impl<'table> PieceTable {
         let (start_piece, start_cut) = start_piece.unwrap();
         let (end_piece,   end_cut)   = end_piece.unwrap();
 
-        action.push(Change::Modify { piece_index: start_piece, old: self.pieces[start_piece] });
-        action.push(Change::Modify { piece_index: end_piece, old: self.pieces[end_piece] });
+        let new_start = self.pieces[start_piece].split(start_cut).0;
+        let new_end   = self.pieces[end_piece].split(end_cut).1;
 
-        self.pieces[start_piece] = self.pieces[start_piece].split(start_cut).0;
-        self.pieces[end_piece]   = self.pieces[end_piece].split(end_cut).1;
+        action.push(Change::Modify { piece_index: start_piece, old: self.pieces[start_piece], new: new_start });
+        action.push(Change::Modify { piece_index: end_piece, old: self.pieces[end_piece], new: new_end });
+
+        self.pieces[start_piece] = new_start;
+        self.pieces[end_piece]   = new_end;
 
         for i in mid_pieces {
             action.push(Change::Delete { piece_index: i,  old: self.pieces.remove(i) });
@@ -249,6 +288,57 @@ impl<'table> PieceTable {
         buf
     }
 
+    pub fn index_of(&self, c: char, start: usize) -> Option<usize> {
+        let mut global_index = 0usize;
+        for p in self.pieces.iter() {
+            let search_start_in_piece = if global_index+p.length <= start { global_index += p.length; continue; }
+            else if start >= global_index && start < global_index+p.length {
+                // starting inside this piece
+                start - global_index
+            } else {
+                0
+            };
+            if let Some(result_local_index)
+                    = self.sources[p.source][(p.start+search_start_in_piece)..(p.start+p.length)].find(c) {
+                return Some(search_start_in_piece + result_local_index + global_index);
+            }
+            global_index += p.length;
+        }
+        None
+    }
+
+    // |----a----|-----b----|----c----|
+    //              ^                 $
+
+    pub fn last_index_of(&self, c: char, start: usize) -> Option<usize> {
+        let mut global_index_end = self.pieces.iter().fold(0, |a,p| a+p.length);
+        //println!("~~{}",start);
+        for p in self.pieces.iter().rev() {
+            //println!("{:?}, gie{} '{}'", p, global_index_end, &self.sources[p.source][p.start..p.start+p.length]);
+            // this piece comes entirely after `start` and so it isn't included in the search
+            if start <= global_index_end-p.length { /*println!("S");*/ global_index_end -= p.length; continue; }  
+            // this piece has `start` between its bounds
+            else if start > global_index_end-p.length && start <= global_index_end {
+                let piece_local_start = start - (global_index_end-p.length);
+                //println!("I {}", &self.sources[p.source][p.start..(p.start+piece_local_start)]);
+                if let Some(result_local_index) = self.sources[p.source][p.start..(p.start+piece_local_start)].rfind(c) {
+                    //println!("{} {}", result_local_index, global_index_end-p.length);
+                    return Some(global_index_end-p.length + result_local_index);
+                }
+            }
+            // this piece is totally contained by the range
+            else {
+                //print!("C");
+                if let Some(result_local_index) = self.sources[p.source][p.start..p.start+p.length].rfind(c) {
+                    //println!("c{} '{}' {}", result_local_index, &self.sources[p.source][p.start..p.start+p.length], global_index_end-p.length);
+                    return Some(global_index_end-p.length + result_local_index);
+                }
+            }
+            global_index_end -= p.length;
+        }
+        None
+    }
+
     pub fn text(&self) -> String {
         let len = self.pieces.iter().fold(0, |a,p| a+p.length);
         let mut s = String::with_capacity(len);
@@ -259,56 +349,7 @@ impl<'table> PieceTable {
     }
 }
 
-pub struct PieceTableRenderer {
-    fnt: Font,
-    pub cursor_index: usize
-}
 
-use runic::*;
-impl PieceTableRenderer {
-    pub fn init(rx: &mut RenderContext, fnt: Font) -> Self {
-        PieceTableRenderer { fnt, cursor_index: 0 }
-    }
-
-    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, position: Point) {
-        rx.set_color(Color::white());
-        let mut global_index = 0usize;
-        let mut cur_pos = position; 
-        let mut line_num = 0usize;
-        for p in table.pieces.iter() {
-            let src = &table.sources[p.source][p.start..(p.start+p.length)];
-            let mut lni = src.lines().peekable(); 
-            loop {
-                let ln = lni.next();
-                if ln.is_none() { break; }
-                let ln = ln.unwrap();
-                let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
-                rx.draw_text_layout(cur_pos, &layout);
-                //rx.draw_text(Rect::pnwh(cur_pos - Point::x(12.0), 100.0, 100.0), &format!("{}", global_index), &self.fnt);
-                if self.cursor_index >= global_index && self.cursor_index <= global_index+ln.len() {
-                    //fix: the cursor doesn't appear at the end of lines because DWrite returns a
-                    // zero-area rectangle, so that case needs to be checked for and a cursor
-                    // rectangle manually computed
-                    let curbounds = layout.char_bounds(self.cursor_index - global_index);
-                    //rx.fill_rect(Rect::xywh(0.0,0.0,8.0,8.0));
-                    rx.stroke_rect(curbounds.offset(cur_pos), 2.0);
-                }
-                let text_size = layout.bounds();
-                cur_pos.x += text_size.w; 
-                global_index += ln.len();
-                if let Some(_) = lni.peek() {
-                    // new line
-                    line_num+=1;
-                    cur_pos.x = position.x;
-                    cur_pos.y += text_size.h;
-                    global_index += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod test {
@@ -427,21 +468,41 @@ mod test {
         assert_eq!(pt.text(), "hello");
     }
 
-
-}
-
-struct TextRenderer {
-    fnt: Font
-}
-
-impl TextRenderer {
-    fn init(rx: &mut RenderContext, fnt: Font) -> Self {
-        TextRenderer { fnt }
+    #[test]
+    fn index_of_simple() {
+        let pt = PieceTable::with_text("he?lo?a");
+        assert_eq!(pt.index_of('?', 0), Some(2));
+        assert_eq!(pt.index_of('x', 0), None);
+        assert_eq!(pt.index_of('?', 3), Some(5));
     }
 
-    fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable) {
-        rx.set_color(Color::white());
-        rx.draw_text(Rect::xywh(32.0,32.0,128.0,64.0), "Hello, world! ==>", &self.fnt);
+    #[test]
+    fn index_of_complex() {
+        let mut pt = PieceTable::with_text("helo?a");
+        pt.insert_range("?", 2);
+        assert_eq!(pt.text(), "he?lo?a");
+        assert_eq!(pt.index_of('?', 0), Some(2));
+        assert_eq!(pt.index_of('x', 0), None);
+        assert_eq!(pt.index_of('?', 3), Some(5));
     }
+
+    #[test]
+    fn last_index_of_simple() {
+        let pt = PieceTable::with_text("he?lo?a");
+        assert_eq!(pt.last_index_of('?', 3), Some(2));
+        assert_eq!(pt.last_index_of('x', 6), None);
+        assert_eq!(pt.last_index_of('?', 6), Some(5));
+    }
+
+    #[test]
+    fn last_index_of_complex() {
+        let mut pt = PieceTable::with_text("helo?a");
+        pt.insert_range("?", 2);
+        assert_eq!(pt.text(), "he?lo?a");
+        assert_eq!(pt.last_index_of('?', 3), Some(2));
+        assert_eq!(pt.last_index_of('x', 6), None);
+        assert_eq!(pt.last_index_of('?', 6), Some(5));
+    }
+
 }
 
