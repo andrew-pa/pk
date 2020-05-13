@@ -8,3 +8,10 @@ edition = "2018"
 
 [dependencies]
 nng = "0.5"
+pk-common = { path = "../pk-common" }
+serde = { version = "1", features = ["derive"] }
+serde_cbor = "0.11"
+threadpool = "1"
+
+[dependencies.nng-sys]
+features = ["cmake-vs2019"]

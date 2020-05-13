@@ -15,6 +15,7 @@ use std::fmt;
 
 trait Mode : fmt::Display {
     fn event(&mut self, e: runic::Event, buf: &mut Buffer) -> Result<Option<Box<dyn Mode>>, Error>;
+    fn cursor_style(&self) -> piece_table_render::CursorStyle { piece_table_render::CursorStyle::Block }
 }
 
 struct NormalMode {
@@ -88,6 +89,8 @@ impl fmt::Display for InsertMode {
 }
 
 impl Mode for InsertMode {
+    fn cursor_style(&self) -> piece_table_render::CursorStyle { piece_table_render::CursorStyle::Line }
+
     fn event(&mut self, e: Event, buf: &mut Buffer) -> Result<Option<Box<dyn Mode>>, Error> {
         match e {
             Event::ReceivedCharacter(c) if !c.is_control() => {
@@ -116,6 +119,11 @@ impl Mode for InsertMode {
     }
 }
 
+struct Server {
+    name: String,
+    socket: nng::Socket
+}
+
 struct PkApp {
     fnt: Font, buf: Buffer, txr: PieceTableRenderer,
     mode: Box<dyn Mode>, last_err: Option<Error>
@@ -126,7 +134,7 @@ impl runic::App for PkApp {
         let fnt = rx.new_font("Fira Code", 12.0, FontWeight::Regular, FontStyle::Normal).unwrap();
         let txr = PieceTableRenderer::init(rx, fnt.clone());
         PkApp {
-            fnt, txr, buf: Buffer::from_file(std::path::Path::new("src\\main.rs")).unwrap(),
+            fnt, txr, buf: Buffer::from_file(&std::path::Path::new("pk-runic-client/src/main.rs")).unwrap(),
             mode: Box::new(NormalMode::new()), last_err: None
         }
     }
@@ -155,13 +163,13 @@ impl runic::App for PkApp {
             rx.draw_text(Rect::xywh(4.0, rx.bounds().h - 16.0, 1000.0, 1000.0), &format!("error: {}", e), &self.fnt);
         }
         rx.set_color(Color::rgb(0.7, 0.35, 0.0));
-        rx.draw_text(Rect::xywh(4.0, 2.0, 1000.0, 100.0),
+        rx.draw_text(Rect::xywh(8.0, 2.0, 1000.0, 100.0),
             &format!("{} col {} {}@last{}-start{}-next{}", self.mode, self.buf.current_column(),
                 self.buf.cursor_index, self.buf.last_line_index(self.buf.cursor_index),
                 self.buf.current_start_of_line(self.buf.cursor_index), self.buf.next_line_index(self.buf.cursor_index)), &self.fnt);
         self.txr.cursor_index = self.buf.cursor_index;
-        self.txr.viewport_start = 14;
-        self.txr.paint(rx, &self.buf.text, Point::xy(8.0, 18.0));
+        self.txr.cursor_style = self.mode.cursor_style();
+        self.txr.paint(rx, &self.buf.text, Rect::xywh(8.0, 20.0, rx.bounds().w-8.0, rx.bounds().h-20.0));
     }
 }
 

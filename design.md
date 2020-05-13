@@ -39,4 +39,13 @@ on startup, the client should start a server for the local machine, but clients 
 - close buffer `(BufferId) -> ()`
 
 - list files in directory `(path) -> [DirEntry]`
-- 
+
+
+# Goals
+- Modal editing
+- Language Server support
+- integrated terminal support
+- Low latency, no freezing, no jank
+- usable in the near future
+- some sort of remote ability that is smooth even on less-than-ideal network connection
+    - less-than-ideal = DSL broadband

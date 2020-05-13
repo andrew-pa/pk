@@ -12,3 +12,8 @@ pk-common = { path = "../pk-common" }
 runic = { path = "../../runic", version = "0.7" }
 regex = "1"
 lazy_static = "1"
+serde = { version = "1", features = ["derive"] }
+serde_cbor = "0.11"
+
+[dependencies.nng-sys]
+features = ["cmake-vs2019"]

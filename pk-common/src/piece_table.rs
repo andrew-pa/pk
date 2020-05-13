@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+use serde::{Serialize, Deserialize};
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy,Clone,Debug, Serialize, Deserialize)]
 pub struct Piece {
     pub source: usize,
     pub start: usize, pub length: usize
@@ -15,7 +16,7 @@ impl Piece {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Change {
     Insert {
         piece_index: usize, new: Piece
@@ -30,7 +31,7 @@ pub enum Change {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Action {
     changes: Vec<Change>,
     id: usize
@@ -65,7 +66,7 @@ pub struct PieceTable {
 
 impl Default for PieceTable {
     fn default() -> PieceTable {
-        PieceTable::with_text("Hello, world!\nthis is a test\nline!\n")
+        PieceTable::with_text("Hello, world!\n\nthis is\na test\n\nline!\n")
     }
 }
 
@@ -92,10 +93,14 @@ impl TableMutator {
 
 impl<'table> PieceTable {
     pub fn with_text(s: &str) -> PieceTable {
+        PieceTable::with_text_and_starting_action_id(s, 1)
+    }
+
+    pub fn with_text_and_starting_action_id(s: &str, start_aid: usize) -> PieceTable {
         PieceTable {
             sources: vec![s.to_string()],
             pieces: vec![ Piece { source: 0, start: 0, length: s.len() } ],
-            history: Vec::new(), next_action_id: 1
+            history: Vec::new(), next_action_id: start_aid 
         }
     }
 

@@ -1,9 +1,10 @@
 
-pub mod piece_table;
-pub mod command;
 
 use std::error::Error as ErrorTrait;
+
+pub mod piece_table;
 use crate::piece_table::PieceTable;
+pub mod command;
 
 #[derive(Debug)]
 pub enum Error {
@@ -39,7 +40,6 @@ impl Error {
     }
 }
 
-
 pub struct Buffer {
     pub text: PieceTable,
     pub path: Option<std::path::PathBuf>,
@@ -47,9 +47,9 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn from_file(path: &std::path::Path) -> Result<Buffer, Error> {
+    pub fn from_file(path: &std::path::Path) -> Result<Buffer, std::io::Error> {
         Ok(Buffer {
-            text: PieceTable::with_text(&std::fs::read_to_string(path).map_err(Error::from_other)?),
+            text: PieceTable::with_text(&std::fs::read_to_string(path)?),
             path: Some(path.into()),
             cursor_index: 0,
         })
@@ -88,3 +88,27 @@ impl Default for Buffer {
     }
 }
 
+
+pub mod protocol {
+    use serde::{Serialize, Deserialize};
+
+    #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+    pub struct BufferId(pub usize);
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub enum Request {
+        /* buffers */
+        NewBuffer,
+        OpenBuffer { path: std::path::PathBuf },
+        SyncBuffer { id: BufferId, changes: Vec<super::piece_table::Action> },
+        ReloadBuffer(BufferId),
+        CloseBuffer(BufferId)
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub enum Response {
+        Ack,
+        Error { message: String },
+        Buffer { id: BufferId, contents: String, next_action_id: usize },
+    }
+}
