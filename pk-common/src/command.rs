@@ -129,6 +129,7 @@ impl Motion {
                         Direction::Forward => buf.next_line_index(range.end),
                         Direction::Backward => buf.last_line_index(range.end)
                     };
+                    // probably should unwrap to the end of the buffer
                     let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(0)-new_line_index;
                     range.end = buf.current_column().min(line_len)+new_line_index;
                 }
@@ -137,6 +138,160 @@ impl Motion {
         }
         range
     }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+
+    fn create_line_test_buffer() -> Buffer {
+        let mut b = Buffer::with_text("abc\ndef\nghi\n");
+        b.cursor_index = b.next_line_index(b.cursor_index);
+        assert_eq!(b.cursor_index, 4);
+        b
+    }
+    fn create_word_test_buffer() -> Buffer {
+        Buffer::with_text("word w0rd wo+d word\n")
+    }
+
+    #[test]
+    fn txo_char() {
+        let b = create_line_test_buffer();
+        let mo = Motion {
+            object: TextObject::Char(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        assert_eq!(mo.range(&b), 4..5);
+    }
+
+    #[test]
+    fn txo_line() {
+        let b = create_line_test_buffer();
+        let mo = Motion {
+            object: TextObject::Line(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        assert_eq!(mo.range(&b), 4..8);
+    }
+ 
+    #[test]
+    fn txo_start_of_line() {
+        let b = create_line_test_buffer();
+        let mo = Motion {
+            object: TextObject::StartOfLine,
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        assert_eq!(mo.range(&b), 4..4);
+    }      
+ 
+    #[test]
+    fn txo_end_of_line() {
+        let b = create_line_test_buffer();
+        let mo = Motion {
+            object: TextObject::EndOfLine,
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        assert_eq!(mo.range(&b), 4..7);
+    }      
+
+    #[test]
+    fn txo_line_backward() {
+        let b = create_line_test_buffer();
+        let mo = Motion {
+            object: TextObject::Line(Direction::Backward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        assert_eq!(mo.range(&b), 4..0);
+    }
+
+    fn run_word_test<'a>(b: &mut Buffer, mo: &Motion, 
+                        correct_word_boundries: impl Iterator<Item=&'a usize>, assert_msg: &str) {
+        for cwb in correct_word_boundries {
+            let r = mo.range(&b);
+            assert_eq!(r.end, *cwb, "{}", assert_msg);
+            b.cursor_index = r.end;
+        }
+    }
+
+    #[test]
+    fn txo_word() {
+        let mut b = create_word_test_buffer();
+        let mo = Motion {
+            object: TextObject::Word(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [6,11,13,14,16].iter(), "forward");
+
+        let mo = Motion {
+            object: TextObject::Word(Direction::Backward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [14,13,11,6,0].iter(), "backward");
+    }
+
+    #[test]
+    fn txo_big_word() {
+        let mut b = create_word_test_buffer();
+        let mo = Motion {
+            object: TextObject::BigWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [6,11,16].iter(), "forward");
+
+        let mo = Motion {
+            object: TextObject::BigWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [11,6,0].iter(), "backward");
+    }
+
+    #[test]
+    fn txo_end_word() {
+        let mut b = create_word_test_buffer();
+        let mo = Motion {
+            object: TextObject::EndOfWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [4,9,12,13,14,19].iter(), "forward");
+
+        let mo = Motion {
+            object: TextObject::EndOfWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [14,13,12,9,4,0].iter(), "backward");
+    }
+
+    #[test]
+    fn txo_end_big_word() {
+        let mut b = create_word_test_buffer();
+        let mo = Motion {
+            object: TextObject::EndOfBigWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [4,9,14,19].iter(), "forward");
+
+        let mo = Motion {
+            object: TextObject::EndOfBigWord(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [14,9,4,0].iter(), "backward");
+    }
+
+
+
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -255,44 +410,45 @@ impl Command {
 }
 
 #[cfg(test)]
-mod test {
+mod command_test {
     use super::*;
     #[test]
-    fn cmd_parse_correct() {
-        assert_eq!(Command::parse("i").unwrap(),
+    fn cmd_parse_correct() -> Result<(), Error> {
+        assert_eq!(Command::parse("i")?,
             Command::ChangeMode(ModeTag::Insert));
-        assert_eq!(Command::parse("x").unwrap(),
+        assert_eq!(Command::parse("x")?,
             Command::Edit{op: Operator::Delete, mo: Motion{count:1,object:TextObject::Char(Direction::Forward), modifier: TextObjectMod::None}, op_count: 1, target_register: '"'});
-        assert_eq!(Command::parse("w").unwrap(),
+        assert_eq!(Command::parse("w")?,
             Command::Move(Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None }));
-        assert_eq!(Command::parse("dw").unwrap(),
+        assert_eq!(Command::parse("dw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
                 mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
                 target_register: '"'
             }
         );
-        assert_eq!(Command::parse("2dw").unwrap(),
+        assert_eq!(Command::parse("2dw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 2,
                 mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
                 target_register: '"'
             }
         );
-        assert_eq!(Command::parse("d2w").unwrap(),
+        assert_eq!(Command::parse("d2w")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
                 mo: Motion { count: 2, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
                 target_register: '"'
             }
         );
-        assert_eq!(Command::parse("\"adw").unwrap(),
+        assert_eq!(Command::parse("\"adw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
                 mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
                 target_register: 'a'
             }
         );
+        Ok(())
     }
 
     #[test]

@@ -47,6 +47,14 @@ pub struct Buffer {
 }
 
 impl Buffer {
+    pub fn with_text(s: &str) -> Buffer {
+        Buffer {
+            text: PieceTable::with_text(s),
+            path: None,
+            cursor_index: 0
+        }
+    }
+
     pub fn from_file(path: &std::path::Path) -> Result<Buffer, std::io::Error> {
         Ok(Buffer {
             text: PieceTable::with_text(&std::fs::read_to_string(path)?),
