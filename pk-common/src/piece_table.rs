@@ -364,7 +364,7 @@ impl<'table> PieceTable {
         let mut global_index = 0;
         for p in self.pieces.iter() {
             if index >= global_index && index < global_index+p.length { 
-                return self.sources[p.source].chars().skip(index-global_index).next();
+                return self.sources[p.source].chars().nth(p.start + index-global_index);
             }
             global_index += p.length;
         }
@@ -536,5 +536,15 @@ mod test {
         assert_eq!(pt.last_index_of('?', 6), Some(5));
     }
 
+    #[test]
+    fn char_at() {
+        let mut pt = PieceTable::with_text("helo?a");
+        pt.insert_range("?", 2);
+        println!("{:?}", pt);
+        let tx = pt.text();
+        for (i, c) in tx.chars().enumerate() {
+            assert_eq!(pt.char_at(i).unwrap(), c, "i = {}", i);
+        }
+    }
 }
 

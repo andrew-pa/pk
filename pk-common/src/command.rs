@@ -132,17 +132,24 @@ impl Motion {
                     range.end = buf.current_column().min(line_len)+new_line_index;
                 },
                 TextObject::Word(Direction::Forward) => {
+                    // is the character under the cursor alphanumeric+ or a 'other non-blank'?
                     if buf.text.char_at(range.start).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
+                        // find the next whitespace or non-blank char
                         let f = buf.text.index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
                             .unwrap_or(range.start);
                         println!("F{}",f);
+                        // the next word starts at either `f` or if `f` is whitespace, the next
+                        // non-blank after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
                             println!("G");
                             buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
                         } else { f };
                     } else { // "a sequence of other non-blank characters"
+                        // find the next blank or alphanumeric+ char
                         let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_',
                             range.start+1).unwrap_or(range.start);
+                        // the next word starts at `f` or if `f` is whitespace, at the next
+                        // non-blank char after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
                             println!("G");
                             buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
