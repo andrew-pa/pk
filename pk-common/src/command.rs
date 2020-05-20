@@ -2,8 +2,6 @@
 use super::*;
 use std::ops::Range;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Direction { Forward, Backward }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Operator {
@@ -132,7 +130,44 @@ impl Motion {
                     // probably should unwrap to the end of the buffer
                     let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(0)-new_line_index;
                     range.end = buf.current_column().min(line_len)+new_line_index;
-                }
+                },
+                TextObject::Word(Direction::Forward) => {
+                    if buf.text.char_at(range.start).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
+                        let f = buf.text.index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
+                            .unwrap_or(range.start);
+                        println!("F{}",f);
+                        range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
+                            println!("G");
+                            buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
+                        } else { f };
+                    } else { // "a sequence of other non-blank characters"
+                        let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_',
+                            range.start+1).unwrap_or(range.start);
+                        range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
+                            println!("G");
+                            buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
+                        } else { f };
+                    }
+                },
+                TextObject::BigWord(Direction::Forward) => {
+                    //println!("s{}", range.start);
+                    let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace(), range.start).unwrap_or(range.start);
+                    // println!("f{}", f);
+                    let g = buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f);
+                    // println!("g{}", g);
+                    range.end = g;
+                    // println!("-b");
+                },
+                TextObject::BigWord(Direction::Backward) => {
+                    // println!("s{}", range.start);
+                    let f = buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), range.start).unwrap_or(range.start);
+                    // println!("f{}", f);
+                    let g = buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), f).map(|i| i+1).unwrap_or(0);
+                    // println!("g{}", g);
+                    range.end = g;
+                    // println!("-b");
+                },
+
                 _ => unimplemented!()
             }
         }
@@ -151,7 +186,7 @@ mod motion_tests {
         b
     }
     fn create_word_test_buffer() -> Buffer {
-        Buffer::with_text("word w0rd wo+d word\n")
+        Buffer::with_text("word\nw0rd wo+d ++++ word\n")
     }
 
     #[test]
@@ -226,14 +261,14 @@ mod motion_tests {
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [6,11,13,14,16].iter(), "forward");
+        run_word_test(&mut b, &mo, [5,10,12,13,15,20].iter(), "forward");
 
         let mo = Motion {
             object: TextObject::Word(Direction::Backward),
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [14,13,11,6,0].iter(), "backward");
+        run_word_test(&mut b, &mo, [15,13,12,10,5,0].iter(), "backward");
     }
 
     #[test]
@@ -244,14 +279,14 @@ mod motion_tests {
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [6,11,16].iter(), "forward");
+        run_word_test(&mut b, &mo, [5,10,15].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::BigWord(Direction::Forward),
+            object: TextObject::BigWord(Direction::Backward),
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [11,6,0].iter(), "backward");
+        run_word_test(&mut b, &mo, [10,5,0].iter(), "backward");
     }
 
     #[test]

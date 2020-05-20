@@ -2,6 +2,9 @@
 
 use std::error::Error as ErrorTrait;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Direction { Forward, Backward }
+
 pub mod piece_table;
 use crate::piece_table::PieceTable;
 pub mod command;

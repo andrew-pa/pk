@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 use serde::{Serialize, Deserialize};
+use super::Direction;
 
 #[derive(Copy,Clone,Debug, Serialize, Deserialize)]
 pub struct Piece {
@@ -293,7 +294,11 @@ impl<'table> PieceTable {
         buf
     }
 
-    pub fn index_of(&self, c: char, start: usize) -> Option<usize> {
+    pub fn index_of(&self, sc: char, start: usize) -> Option<usize> {
+        self.index_of_pred(|c| c == sc, start)
+    }
+
+    pub fn index_of_pred<P: Fn(char)->bool>(&self, pred: P, start: usize) -> Option<usize> {
         let mut global_index = 0usize;
         for p in self.pieces.iter() {
             let search_start_in_piece = if global_index+p.length <= start { global_index += p.length; continue; }
@@ -304,7 +309,7 @@ impl<'table> PieceTable {
                 0
             };
             if let Some(result_local_index)
-                    = self.sources[p.source][(p.start+search_start_in_piece)..(p.start+p.length)].find(c) {
+                    = self.sources[p.source][(p.start+search_start_in_piece)..(p.start+p.length)].find(&pred) {
                 return Some(search_start_in_piece + result_local_index + global_index);
             }
             global_index += p.length;
@@ -316,6 +321,10 @@ impl<'table> PieceTable {
     //              ^                 $
 
     pub fn last_index_of(&self, c: char, start: usize) -> Option<usize> {
+        self.last_index_of_pred(|sc| c == sc, start)
+    }
+
+    pub fn last_index_of_pred<P: Fn(char)->bool>(&self, pred: P, start: usize) -> Option<usize> {
         let mut global_index_end = self.pieces.iter().fold(0, |a,p| a+p.length);
         //println!("~~{}",start);
         for p in self.pieces.iter().rev() {
@@ -326,7 +335,7 @@ impl<'table> PieceTable {
             else if start > global_index_end-p.length && start <= global_index_end {
                 let piece_local_start = start - (global_index_end-p.length);
                 //println!("I {}", &self.sources[p.source][p.start..(p.start+piece_local_start)]);
-                if let Some(result_local_index) = self.sources[p.source][p.start..(p.start+piece_local_start)].rfind(c) {
+                if let Some(result_local_index) = self.sources[p.source][p.start..(p.start+piece_local_start)].rfind(&pred) {
                     //println!("{} {}", result_local_index, global_index_end-p.length);
                     return Some(global_index_end-p.length + result_local_index);
                 }
@@ -334,12 +343,30 @@ impl<'table> PieceTable {
             // this piece is totally contained by the range
             else {
                 //print!("C");
-                if let Some(result_local_index) = self.sources[p.source][p.start..p.start+p.length].rfind(c) {
+                if let Some(result_local_index) = self.sources[p.source][p.start..p.start+p.length].rfind(&pred) {
                     //println!("c{} '{}' {}", result_local_index, &self.sources[p.source][p.start..p.start+p.length], global_index_end-p.length);
                     return Some(global_index_end-p.length + result_local_index);
                 }
             }
             global_index_end -= p.length;
+        }
+        None
+    }
+
+    pub fn dir_index_of<P: Fn(char)->bool>(&self, pred: P, start: usize, dir: Direction) -> Option<usize> {
+        match dir {
+            Direction::Forward => self.index_of_pred(pred, start),
+            Direction::Backward => self.last_index_of_pred(pred, start)
+        }
+    }
+
+    pub fn char_at(&self, index: usize) -> Option<char> {
+        let mut global_index = 0;
+        for p in self.pieces.iter() {
+            if index >= global_index && index < global_index+p.length { 
+                return self.sources[p.source].chars().skip(index-global_index).next();
+            }
+            global_index += p.length;
         }
         None
     }
