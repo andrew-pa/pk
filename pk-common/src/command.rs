@@ -137,11 +137,11 @@ impl Motion {
                         // find the next whitespace or non-blank char
                         let f = buf.text.index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
                             .unwrap_or(range.start);
-                        println!("F{}",f);
+                        // println!("F{}",f);
                         // the next word starts at either `f` or if `f` is whitespace, the next
                         // non-blank after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
-                            println!("G");
+                            // println!("G");
                             buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
                         } else { f };
                     } else { // "a sequence of other non-blank characters"
@@ -151,30 +151,98 @@ impl Motion {
                         // the next word starts at `f` or if `f` is whitespace, at the next
                         // non-blank char after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
-                            println!("G");
+                            // println!("G");
                             buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f)
                         } else { f };
                     }
                 },
-                TextObject::BigWord(Direction::Forward) => {
-                    //println!("s{}", range.start);
-                    let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace(), range.start).unwrap_or(range.start);
-                    // println!("f{}", f);
-                    let g = buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f);
-                    // println!("g{}", g);
-                    range.end = g;
-                    // println!("-b");
-                },
-                TextObject::BigWord(Direction::Backward) => {
-                    // println!("s{}", range.start);
-                    let f = buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), range.start).unwrap_or(range.start);
-                    // println!("f{}", f);
-                    let g = buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), f).map(|i| i+1).unwrap_or(0);
-                    // println!("g{}", g);
-                    range.end = g;
-                    // println!("-b");
+
+                TextObject::Word(Direction::Backward) => {
+                    // find the last transition boundary
+                    // is the character under the cursor alphanumeric+ or a 'other non-blank'?
+                    let (f,falpnu) = if buf.text.char_at(range.start).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
+                        // find the last whitespace or non-blank char
+                        (buf.text.last_index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
+                            .unwrap_or(range.start),true)
+                    } else { // "a sequence of other non-blank characters"
+                        // find the last whitespace or alphanumeric+ char
+                        (buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_', range.start-1).unwrap_or(range.start), false)
+                    };
+
+                    // end of previous word
+                    let (g,gblank) = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
+                        (buf.text.last_index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f), true)
+                    } else { (f, false) };
+                    // beginning of previous word
+                    let h = if falpnu { 
+                        if gblank {
+                            if buf.text.char_at(g).map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false) {
+                                buf.text.last_index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), g)
+                            } else {
+                                buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_', g)
+                            }
+                        } else {
+                            buf.text.last_index_of_pred(|sc| (sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
+                        }
+                    } else {
+                        if gblank {
+                            Some(f)
+                        } else {
+                            buf.text.last_index_of_pred(|sc| !(sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
+                        }
+                    }.map(|i| i+1).unwrap_or(0);
+
+                    range.end = h;
+
+                    let tx: String = buf.text.text().chars().map(|c| match c {
+                        '\n' => '⮐',
+                        _ => c
+                    }).collect();
+                    for i in 0..tx.len() {
+                        if i == f {
+                            print!("f");
+                        } else if i == g {
+                            print!("g");
+                        } else if i == h {
+                            print!("h");
+                        } else {
+                            print!(".");
+                        }
+                    }
+                    println!();
+                    
+                    println!("{}", tx);
+                    for i in 0..tx.len() {
+                        if i == range.start {
+                            if i == range.end {
+                                print!("$");
+                            } else {
+                                print!("|");
+                            }
+                        } else if i == range.end {
+                            print!("^");
+                        } else {
+                            print!(".");
+                        }
+                    }
+                    println!();
+                    for i in (0..tx.len()).step_by(5) {
+                        print!("{:<5}", i);
+                    }
+                    println!("F{} G{}",falpnu,gblank);
                 },
 
+
+                TextObject::BigWord(direction) => {
+                    let next_blank = buf.text.dir_index_of(|sc| sc.is_ascii_whitespace(), range.start, *direction)
+                                                .unwrap_or(range.start);
+                    range.end = match *direction {
+                        Direction::Forward =>
+                            buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), next_blank).unwrap_or(next_blank),
+                        Direction::Backward =>
+                            buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), next_blank).map(|i| i+1).unwrap_or(0)
+                    };
+                },
                 _ => unimplemented!()
             }
         }
@@ -193,7 +261,7 @@ mod motion_tests {
         b
     }
     fn create_word_test_buffer() -> Buffer {
-        Buffer::with_text("word\nw0rd wo+d ++++ word\n")
+        Buffer::with_text("word\nw0rd w##d ++++ word\n")
     }
 
     #[test]
@@ -209,6 +277,7 @@ mod motion_tests {
 
     #[test]
     fn txo_line() {
+
         let b = create_line_test_buffer();
         let mo = Motion {
             object: TextObject::Line(Direction::Forward),
@@ -261,6 +330,24 @@ mod motion_tests {
     }
 
     #[test]
+    fn txo_word_no_spaces() {
+        let mut b = Buffer::with_text("word+++word+++ +ope");
+        let mo = Motion {
+            object: TextObject::Word(Direction::Forward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [4,7,11,15].iter(), "forward");
+        let mo = Motion {
+            object: TextObject::Word(Direction::Backward),
+            count: 1,
+            modifier: TextObjectMod::None
+        };
+        run_word_test(&mut b, &mo, [11,7,4,0].iter(), "backward");
+    
+    }
+
+    #[test]
     fn txo_word() {
         let mut b = create_word_test_buffer();
         let mo = Motion {
@@ -268,14 +355,14 @@ mod motion_tests {
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [5,10,12,13,15,20].iter(), "forward");
+        run_word_test(&mut b, &mo, [5,10,11,13,15,20].iter(), "forward");
 
         let mo = Motion {
             object: TextObject::Word(Direction::Backward),
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [15,13,12,10,5,0].iter(), "backward");
+        run_word_test(&mut b, &mo, [15,13,11,10,5,0].iter(), "backward");
     }
 
     #[test]
