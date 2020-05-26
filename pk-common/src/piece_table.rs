@@ -95,7 +95,8 @@ impl TableMutator {
 pub struct TableChars<'table> {
     table: &'table PieceTable,
     current_piece: usize,
-    current_index: usize
+    current_index: usize,
+    hit_beginning: bool,
 }
 
 impl<'t> Iterator for TableChars<'t> {
@@ -113,6 +114,26 @@ impl<'t> Iterator for TableChars<'t> {
         ch
     }
 }
+
+impl<'t> DoubleEndedIterator for TableChars<'t> {
+    fn next_back(&mut self) -> Option<char> {
+        if self.hit_beginning { return None; }
+        let curp = &self.table.pieces[self.current_piece];
+        let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
+        if self.current_index == 0 {
+            if self.current_piece == 0 {
+                self.hit_beginning = true;
+            } else {
+                self.current_piece -= 1;
+                self.current_index = self.table.pieces[self.current_piece].length-1;
+            }
+        } else {
+            self.current_index -= 1;
+        }
+        ch
+    }
+}
+
 
 impl<'table> PieceTable {
     pub fn with_text(s: &str) -> PieceTable {
@@ -396,11 +417,12 @@ impl<'table> PieceTable {
     pub fn chars(&self, index: usize) -> TableChars {
         let mut global_index = 0;
         for (pi, p) in self.pieces.iter().enumerate() {
-            if index >= global_index && index < global_index+p.length { 
+            if index >= global_index && index <= global_index+p.length { 
                 return TableChars {
                     table: self,
                     current_piece: pi,
-                    current_index: index - global_index
+                    current_index: index - global_index,
+                    hit_beginning: false
                 };
             }
             global_index += p.length;
@@ -593,6 +615,23 @@ mod test {
         for (a, b) in tx.chars().zip(pt.chars(0)) {
             println!("{} - {}", a, b);
             assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn char_iter_back() {
+        let mut pt = PieceTable::with_text("helo?a");
+        pt.insert_range("?", 2);
+        println!("{:?}", pt);
+        let tx = pt.text();
+        let mut tc = tx.chars();
+        let mut ch = pt.chars(tx.len()-1);
+        loop {
+            let a = tc.next_back();
+            let b = ch.next_back();
+            println!("{:?} - {:?}", a, b);
+            assert_eq!(a, b);
+            if a.is_none() && b.is_none() { break; }
         }
     }
 }

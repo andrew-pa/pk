@@ -63,6 +63,7 @@ fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<usiz
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum CharClass {
     Whitespace,
     Punctuation,
@@ -70,14 +71,14 @@ enum CharClass {
 }
 
 trait CharClassify {
-    fn class(&self) -> CharClass;
+    fn class(self) -> CharClass;
 }
 
 impl CharClassify for char {
-    fn class(&self) -> CharClass {
+    fn class(self) -> CharClass {
         if self.is_whitespace() || self.is_ascii_whitespace() {
             CharClass::Whitespace
-        } else if !self.is_alphanumeric() && *self != '_' {
+        } else if !self.is_alphanumeric() && self != '_' {
             CharClass::Punctuation
         } else {
             CharClass::Regular
@@ -180,84 +181,23 @@ impl Motion {
                 },
 
                 TextObject::Word(Direction::Backward) => {
-                    // find the last transition boundary
-                    // is the character under the cursor alphanumeric+ or a 'other non-blank'?
-                    let (f,falpnu) = if buf.text.char_at(range.start).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
-                        // find the last whitespace or non-blank char
-                        (buf.text.last_index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
-                            .unwrap_or(range.start),true)
-                    } else { // "a sequence of other non-blank characters"
-                        // find the last whitespace or alphanumeric+ char
-                        (buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_', range.start-1).unwrap_or(range.start), false)
-                    };
-
-                    // end of previous word
-                    let (g,gblank) = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
-                        (buf.text.last_index_of_pred(|sc| !sc.is_ascii_whitespace(), f).unwrap_or(f), true)
-                    } else { (f, false) };
-                    // beginning of previous word
-                    let h = if falpnu { 
-                        if gblank {
-                            if buf.text.char_at(g).map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false) {
-                                buf.text.last_index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), g)
-                            } else {
-                                buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_', g)
-                            }
-                        } else {
-                            buf.text.last_index_of_pred(|sc| (sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
+                    let mut chars = buf.text.chars(range.end).rev()
+                        .map(CharClassify::class)
+                        .peekable();
+                    if let Some(_) = chars.next() {
+                        range.end -= 1;
+                        while let Some(CharClass::Whitespace) = chars.peek() {
+                            chars.next();
+                            range.end -= 1;
                         }
+                        let scls = chars.peek().cloned().unwrap();
+                        while range.end > 0 && chars.next().map_or(false, |x| x == scls) {
+                            range.end -= 1;
+                        }
+                        if range.end > 0 { range.end += 1; }
                     } else {
-                        if gblank {
-                            Some(f)
-                        } else {
-                            if buf.text.char_at(f+1).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
-                                buf.text.last_index_of_pred(|sc| !(sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
-                            } else if buf.text.char_at(f+1).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
-                                Some(f-1)
-                            } else {
-                                Some(f)
-                            }
-                        }
-                    }.map(|i| i+1).unwrap_or(0);
-
-                    range.end = h;
-
-                    let tx: String = buf.text.text().chars().map(|c| match c {
-                        '\n' => '⮐',
-                        _ => c
-                    }).collect();
-                    for i in 0..tx.len() {
-                        if i == f {
-                            print!("f");
-                        } else if i == g {
-                            print!("g");
-                        } else if i == h {
-                            print!("h");
-                        } else {
-                            print!(".");
-                        }
+                        range.end = 0;
                     }
-                    println!();
-                    
-                    println!("{}", tx);
-                    for i in 0..tx.len() {
-                        if i == range.start {
-                            if i == range.end {
-                                print!("$");
-                            } else {
-                                print!("|");
-                            }
-                        } else if i == range.end {
-                            print!("^");
-                        } else {
-                            print!(".");
-                        }
-                    }
-                    println!();
-                    for i in (0..tx.len()).step_by(5) {
-                        print!("{:<5}", i);
-                    }
-                    println!("F{} G{}",falpnu,gblank);
                 },
 
 
