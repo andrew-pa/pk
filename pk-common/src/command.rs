@@ -156,10 +156,10 @@ impl Motion {
                 },
                 TextObject::Word(Direction::Forward) => {
                     // is the character under the cursor alphanumeric+ or a 'other non-blank'?
-                    if buf.text.char_at(range.start).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
+                    if buf.text.char_at(range.end).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
                         // find the next whitespace or non-blank char
-                        let f = buf.text.index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.start)
-                            .unwrap_or(range.start);
+                        let f = buf.text.index_of_pred(|sc| !(sc.is_alphanumeric() || sc == '_'), range.end)
+                            .unwrap_or(range.end);
                         // println!("F{}",f);
                         // the next word starts at either `f` or if `f` is whitespace, the next
                         // non-blank after `f`
@@ -170,7 +170,7 @@ impl Motion {
                     } else { // "a sequence of other non-blank characters"
                         // find the next blank or alphanumeric+ char
                         let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_',
-                            range.start+1).unwrap_or(range.start);
+                            range.end+1).unwrap_or(range.end);
                         // the next word starts at `f` or if `f` is whitespace, at the next
                         // non-blank char after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
@@ -200,7 +200,6 @@ impl Motion {
                     }
                 },
 
-
                 TextObject::BigWord(direction) => {
                     let next_blank = buf.text.dir_index_of(|sc| sc.is_ascii_whitespace(), range.start, *direction)
                                                 .unwrap_or(range.start);
@@ -211,6 +210,43 @@ impl Motion {
                             buf.text.last_index_of_pred(|sc| sc.is_ascii_whitespace(), next_blank).map(|i| i+1).unwrap_or(0)
                     };
                 },
+
+                TextObject::EndOfWord(Direction::Forward) | TextObject::EndOfBigWord(Direction::Forward) => {
+                    let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end)
+                        .map(CharClassify::class));
+                    if let TextObject::EndOfBigWord(_) = self.object {
+                        chars = Box::new(chars.map(|c| match c { 
+                            CharClass::Punctuation => CharClass::Regular,
+                            _ => c
+                        }));
+                    }
+                    let mut chars = chars.peekable();
+                    if let Some(starting_class) = chars.next() {
+                        range.end += 1;
+                        if starting_class != CharClass::Whitespace &&
+                            chars.peek().map(|cc| *cc == starting_class).unwrap_or(false)
+                        {
+                            while chars.next().map_or(false, |cc| cc == starting_class) {
+                                range.end += 1;
+                            }
+                        } else {
+                            while let Some(CharClass::Whitespace) = chars.peek() {
+                                chars.next();
+                                range.end += 1;
+                            }
+                            let scls = chars.peek().cloned().unwrap();
+                            while range.end < buf.text.len() &&
+                                    chars.next().map_or(false, |x| x == scls)
+                            {
+                                range.end += 1;
+                            }
+                        }
+                        range.end -= 1;
+                    } else {
+                        range.end = 0;
+                    }
+                },
+
                 _ => unimplemented!()
             }
         }
@@ -290,9 +326,9 @@ mod motion_tests {
 
     fn run_word_test<'a>(b: &mut Buffer, mo: &Motion, 
                         correct_word_boundries: impl Iterator<Item=&'a usize>, assert_msg: &str) {
-        for cwb in correct_word_boundries {
+        for (i, cwb) in correct_word_boundries.enumerate() {
             let r = mo.range(&b);
-            assert_eq!(r.end, *cwb, "{}", assert_msg);
+            assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
             b.cursor_index = r.end;
         }
     }
@@ -359,14 +395,14 @@ mod motion_tests {
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [4,9,12,13,14,19].iter(), "forward");
+        run_word_test(&mut b, &mo, [3,8,10,12,13,18,23].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::EndOfWord(Direction::Forward),
+            object: TextObject::EndOfWord(Direction::Backward),
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [14,13,12,9,4,0].iter(), "backward");
+        run_word_test(&mut b, &mo, [18,13,12,10,8,3].iter(), "backward");
     }
 
     #[test]
@@ -377,14 +413,14 @@ mod motion_tests {
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [4,9,14,19].iter(), "forward");
+        run_word_test(&mut b, &mo, [3,8,13,18,23].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::EndOfBigWord(Direction::Forward),
+            object: TextObject::EndOfBigWord(Direction::Backward),
             count: 1,
             modifier: TextObjectMod::None
         };
-        run_word_test(&mut b, &mo, [14,9,4,0].iter(), "backward");
+        run_word_test(&mut b, &mo, [18,13,8,3].iter(), "backward");
     }
 
 

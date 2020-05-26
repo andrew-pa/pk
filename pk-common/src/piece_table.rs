@@ -431,12 +431,15 @@ impl<'table> PieceTable {
     }
 
     pub fn text(&self) -> String {
-        let len = self.pieces.iter().fold(0, |a,p| a+p.length);
-        let mut s = String::with_capacity(len);
+        let mut s = String::with_capacity(self.len());
         for piece in self.pieces.iter() {
            s.push_str(&self.sources[piece.source][piece.start..(piece.start+piece.length)]); 
         }
         s
+    }
+
+    pub fn len(&self) -> usize {
+        self.pieces.iter().map(|p| p.length).sum()
     }
 }
 
