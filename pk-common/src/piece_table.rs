@@ -92,6 +92,28 @@ impl TableMutator {
     }
 }
 
+pub struct TableChars<'table> {
+    table: &'table PieceTable,
+    current_piece: usize,
+    current_index: usize
+}
+
+impl<'t> Iterator for TableChars<'t> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        if self.current_piece > self.table.pieces.len() { return None; }
+        let curp = &self.table.pieces[self.current_piece];
+        let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
+        self.current_index += 1;
+        if self.current_index >= curp.length {
+            self.current_piece += 1;
+            self.current_index = 0;
+        }
+        ch
+    }
+}
+
 impl<'table> PieceTable {
     pub fn with_text(s: &str) -> PieceTable {
         PieceTable::with_text_and_starting_action_id(s, 1)
@@ -371,6 +393,21 @@ impl<'table> PieceTable {
         None
     }
 
+    pub fn chars(&self, index: usize) -> TableChars {
+        let mut global_index = 0;
+        for (pi, p) in self.pieces.iter().enumerate() {
+            if index >= global_index && index < global_index+p.length { 
+                return TableChars {
+                    table: self,
+                    current_piece: pi,
+                    current_index: index - global_index
+                };
+            }
+            global_index += p.length;
+        }
+        panic!("tried to start char iterator out of bounds");
+    }
+
     pub fn text(&self) -> String {
         let len = self.pieces.iter().fold(0, |a,p| a+p.length);
         let mut s = String::with_capacity(len);
@@ -544,6 +581,18 @@ mod test {
         let tx = pt.text();
         for (i, c) in tx.chars().enumerate() {
             assert_eq!(pt.char_at(i).unwrap(), c, "i = {}", i);
+        }
+    }
+
+    #[test]
+    fn char_iter() {
+        let mut pt = PieceTable::with_text("helo?a");
+        pt.insert_range("?", 2);
+        println!("{:?}", pt);
+        let tx = pt.text();
+        for (a, b) in tx.chars().zip(pt.chars(0)) {
+            println!("{} - {}", a, b);
+            assert_eq!(a, b);
         }
     }
 }

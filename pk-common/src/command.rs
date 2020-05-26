@@ -63,6 +63,28 @@ fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<usiz
     }
 }
 
+enum CharClass {
+    Whitespace,
+    Punctuation,
+    Regular
+}
+
+trait CharClassify {
+    fn class(&self) -> CharClass;
+}
+
+impl CharClassify for char {
+    fn class(&self) -> CharClass {
+        if self.is_whitespace() || self.is_ascii_whitespace() {
+            CharClass::Whitespace
+        } else if !self.is_alphanumeric() && *self != '_' {
+            CharClass::Punctuation
+        } else {
+            CharClass::Regular
+        }
+    }
+}
+
 impl Motion {
     fn parse(c: &mut std::iter::Peekable<std::str::Chars>, opchar: Option<char>, wholecmd: &str) -> Result<Motion, Error> {
        let count = take_number(c);
@@ -188,7 +210,13 @@ impl Motion {
                         if gblank {
                             Some(f)
                         } else {
-                            buf.text.last_index_of_pred(|sc| !(sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
+                            if buf.text.char_at(f+1).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
+                                buf.text.last_index_of_pred(|sc| !(sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_'), g)
+                            } else if buf.text.char_at(f+1).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
+                                Some(f-1)
+                            } else {
+                                Some(f)
+                            }
                         }
                     }.map(|i| i+1).unwrap_or(0);
 
