@@ -105,6 +105,17 @@ impl Motion {
            Some('B') => TextObject::BigWord(Direction::Backward),
            Some('e') => TextObject::EndOfWord(Direction::Forward),
            Some('E') => TextObject::EndOfBigWord(Direction::Forward),
+           Some('g') => {
+               c.next();
+               match c.peek() {
+                   Some('e') => TextObject::EndOfWord(Direction::Backward),
+                   Some('E') => TextObject::EndOfBigWord(Direction::Backward),
+                   Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
+                   None => return Err(Error::IncompleteCommand)
+               }
+           },
+           Some('^') => TextObject::StartOfLine,
+           Some('$') => TextObject::EndOfLine,
            Some(&tc) if tc == 'f' || tc == 'F' || tc == 't' || tc == 'T' => {
                c.next();
                TextObject::NextChar {
@@ -154,6 +165,16 @@ impl Motion {
                     let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(0)-new_line_index;
                     range.end = buf.current_column().min(line_len)+new_line_index;
                 },
+                TextObject::StartOfLine => {
+                    range.end = buf.current_start_of_line(range.end);
+                    let mut chars = buf.text.chars(range.end).map(CharClassify::class);
+                    while chars.next().map_or(false, |cc| cc == CharClass::Whitespace) {
+                        range.end += 1;
+                    }
+                },
+                TextObject::EndOfLine => {
+                    range.end = buf.next_line_index(range.end)-1;
+                }
                 TextObject::Word(Direction::Forward) => {
                     // is the character under the cursor alphanumeric+ or a 'other non-blank'?
                     if buf.text.char_at(range.end).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
@@ -246,6 +267,36 @@ impl Motion {
                         range.end = 0;
                     }
                 },
+
+                // of course, the most arcane is the simplest
+                TextObject::EndOfWord(Direction::Backward) | TextObject::EndOfBigWord(Direction::Backward) => {
+                    let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end).rev()
+                        .map(CharClassify::class));
+                    if let TextObject::EndOfBigWord(_) = self.object {
+                        chars = Box::new(chars.map(|c| match c { 
+                            CharClass::Punctuation => CharClass::Regular,
+                            _ => c
+                        }));
+                    }
+                    let mut chars = chars.peekable();
+                    if let Some(starting_class) = chars.next() {
+                        range.end -= 1;
+                        if(starting_class != CharClass::Whitespace) {
+                            while chars.peek().map_or(false, |cc| *cc == starting_class) {
+                                chars.next();
+                                range.end -= 1;
+                            }
+                        }
+
+                        while chars.peek().map_or(false, |cc| *cc == CharClass::Whitespace) {
+                            chars.next();
+                            range.end -= 1;
+                        }
+                    } else {
+                        range.end = 0;
+                    }
+                },
+
 
                 _ => unimplemented!()
             }
@@ -605,4 +656,5 @@ mod command_test {
         }
     }
 }
+
 
