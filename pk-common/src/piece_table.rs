@@ -446,7 +446,7 @@ impl<'table> PieceTable {
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::piece_table::*;
 
     #[test]

@@ -7,6 +7,7 @@ pub enum Direction { Forward, Backward }
 
 pub mod piece_table;
 use crate::piece_table::PieceTable;
+pub mod motion;
 pub mod command;
 
 #[derive(Debug)]
