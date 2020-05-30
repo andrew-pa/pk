@@ -1,52 +1,6 @@
 use super::*;
 use std::ops::Range;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TextObject {
-    Char(Direction),
-    Word(Direction), // words
-    BigWord(Direction), // WORDS
-    EndOfWord(Direction),
-    EndOfBigWord(Direction),
-    NextChar {
-        c: char,
-        place_before: bool,
-        direction: Direction,
-    },
-    RepeatNextChar {
-        opposite: bool // true -> reverse direction
-    },
-    WholeLine,
-    Line(Direction),
-    StartOfLine,
-    EndOfLine,
-    Paragraph
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum TextObjectMod {
-    None, AnObject, InnerObject
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Motion {
-    pub count: usize,
-    pub object: TextObject,
-    pub modifier: TextObjectMod
-}
-
-pub fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<usize> {
-    if schars.peek().map(|c| c.is_digit(10)).unwrap_or(false) {
-        let mut num = schars.next().unwrap().to_digit(10).unwrap() as usize;
-        while schars.peek().map(|c| c.is_digit(10)).unwrap_or(false) {
-            num = num*10 + schars.next().unwrap().to_digit(10).unwrap() as usize;  
-        }
-        Some(num)
-    } else {
-        None
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum CharClass {
     Whitespace,
@@ -70,40 +24,131 @@ impl CharClassify for char {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum TextObject {
+    Word, BigWord, Paragraph, Block(char)
+}
+
+impl TextObject {
+    fn range(&self, buf: &Buffer, count: usize, include: bool) -> Range<usize> {
+        // include = true->An, false->Inner
+        match self {
+            TextObject::Word | TextObject::BigWord => {
+                println!("---");
+                let bigword = *self == TextObject::BigWord;
+                let mut range = buf.cursor_index..buf.cursor_index;
+                // find start of range
+                let mut chars = buf.text.chars(range.start)
+                    .rev()
+                    .map(CharClassify::class)
+                    .map(|cc| if bigword && cc == CharClass::Punctuation { CharClass::Regular } else { cc })
+                    .peekable();
+                let starting_class = chars.next().unwrap();
+                while chars.peek().map(|cc| *cc == starting_class).unwrap_or(false) {
+                    range.start -= 1;
+                    chars.next();
+                }
+                // find end of range
+                if !include && starting_class == CharClass::Whitespace { return range; }
+                range.end = range.start;
+                let mut chars = buf.text.chars(range.end)
+                    .map(CharClassify::class)
+                    .map(|cc| if bigword && cc == CharClass::Punctuation { CharClass::Regular } else { cc })
+                    .peekable();
+                for i in 0..count {
+                    while chars.peek().map(|cc| *cc == starting_class).unwrap_or(false) {
+                        range.end += 1;
+                        chars.next();
+                    }
+                    if i > 0 || include {
+                        let class = if starting_class == CharClass::Whitespace {
+                                        *chars.peek().unwrap()
+                                    } else { CharClass::Whitespace };
+                        while chars.peek().map(|cc| *cc == class).unwrap_or(false) {
+                            range.end += 1;
+                            chars.next();
+                        }
+                    }
+                }
+                range.end -= 1;
+                range
+            },
+            _ => unimplemented!()
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MotionType {
+    Char(Direction),
+    Word(Direction), // words
+    BigWord(Direction), // WORDS
+    EndOfWord(Direction),
+    EndOfBigWord(Direction),
+    NextChar {
+        c: char,
+        place_before: bool,
+        direction: Direction
+    },
+    RepeatNextChar {
+        opposite: bool // true -> reverse direction
+    },
+    WholeLine,
+    Line(Direction),
+    StartOfLine,
+    EndOfLine,
+    Paragraph,
+    An(TextObject),
+    Inner(TextObject)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Motion {
+    pub count: usize,
+    pub mo: MotionType,
+}
+
+pub fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<usize> {
+    if schars.peek().map(|c| c.is_digit(10)).unwrap_or(false) {
+        let mut num = schars.next().unwrap().to_digit(10).unwrap() as usize;
+        while schars.peek().map(|c| c.is_digit(10)).unwrap_or(false) {
+            num = num*10 + schars.next().unwrap().to_digit(10).unwrap() as usize;  
+        }
+        Some(num)
+    } else {
+        None
+    }
+}
+
 impl Motion {
     pub fn parse(c: &mut std::iter::Peekable<std::str::Chars>, opchar: Option<char>, wholecmd: &str) -> Result<Motion, Error> {
        let count = take_number(c);
-       let txm = match c.peek() {
-           Some('i') => { c.next(); TextObjectMod::InnerObject }, 
-           Some('a') => { c.next(); TextObjectMod::AnObject },
-           _ => TextObjectMod::None
-       };
        let txo = match c.peek() {
-           Some('h') => TextObject::Char(Direction::Backward),
-           Some('j') => TextObject::Line(Direction::Forward),
-           Some('k') => TextObject::Line(Direction::Backward),
-           Some('l') => TextObject::Char(Direction::Forward),
-           Some('w') => TextObject::Word(Direction::Forward),
-           Some('b') => TextObject::Word(Direction::Backward),
-           Some('W') => TextObject::BigWord(Direction::Forward),
-           Some('B') => TextObject::BigWord(Direction::Backward),
-           Some('e') => TextObject::EndOfWord(Direction::Forward),
-           Some('E') => TextObject::EndOfBigWord(Direction::Forward),
+           Some('h') => MotionType::Char(Direction::Backward),
+           Some('j') => MotionType::Line(Direction::Forward),
+           Some('k') => MotionType::Line(Direction::Backward),
+           Some('l') => MotionType::Char(Direction::Forward),
+           Some('w') => MotionType::Word(Direction::Forward),
+           Some('b') => MotionType::Word(Direction::Backward),
+           Some('W') => MotionType::BigWord(Direction::Forward),
+           Some('B') => MotionType::BigWord(Direction::Backward),
+           Some('e') => MotionType::EndOfWord(Direction::Forward),
+           Some('E') => MotionType::EndOfBigWord(Direction::Forward),
            Some('g') => {
                c.next();
                match c.peek() {
-                   Some('e') => TextObject::EndOfWord(Direction::Backward),
-                   Some('E') => TextObject::EndOfBigWord(Direction::Backward),
+                   Some('e') => MotionType::EndOfWord(Direction::Backward),
+                   Some('E') => MotionType::EndOfBigWord(Direction::Backward),
                    Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
                    None => return Err(Error::IncompleteCommand)
                }
            },
-           Some('^') => TextObject::StartOfLine,
-           Some('$') => TextObject::EndOfLine,
-           Some('_') => TextObject::WholeLine,
+           Some('^') => MotionType::StartOfLine,
+           Some('$') => MotionType::EndOfLine,
+           Some('_') => MotionType::WholeLine,
            Some(&tc) if tc == 'f' || tc == 'F' || tc == 't' || tc == 'T' => {
                c.next();
-               TextObject::NextChar {
+               MotionType::NextChar {
                    c: c.next().ok_or(Error::IncompleteCommand)?,
                    place_before: match tc {
                        'f' => false,
@@ -121,27 +166,55 @@ impl Motion {
                    }
                }
            },
-           Some(';') => TextObject::RepeatNextChar { opposite: true },
+           Some('i') | Some('a') if opchar.is_some() => {
+               let t = c.next();
+               let obj = match c.peek() {
+                   Some('w') => TextObject::Word,
+                   Some('W') => TextObject::BigWord,
+                   Some('p') => TextObject::Paragraph,
+                   Some('{') | Some('}') => TextObject::Block('{'),
+                   Some('[') | Some(']') => TextObject::Block('['),
+                   Some('<') | Some('>') => TextObject::Block('<'),
+                   Some('"')  => TextObject::Block('"'),
+                   Some('\'') => TextObject::Block('\''),
+                   Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
+                   None => return Err(Error::IncompleteCommand)
+               };
+               match t {
+                   Some('i') => MotionType::Inner(obj),
+                   Some('a') => MotionType::An(obj),
+                   _ => unreachable!()
+               }
+           },
+           Some(';') => MotionType::RepeatNextChar { opposite: true },
            Some(c) if opchar.map(|opc| opc == *c).unwrap_or(false)
-               => TextObject::WholeLine,
+               => MotionType::WholeLine,
            Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
            None => return Err(Error::IncompleteCommand)
        };
        c.next();
        Ok(Motion {
            count: count.unwrap_or(1),
-           object: txo,
-           modifier: txm
+           mo: txo,
        })
     }
 
     pub fn range(&self, buf: &Buffer) -> Range<usize> {
         let mut range = buf.cursor_index..buf.cursor_index;
+        match &self.mo {
+            MotionType::An(obj) => {
+                return obj.range(buf, self.count, true);
+            },
+            MotionType::Inner(obj) => {
+                return obj.range(buf, self.count, false);
+            },
+            _ => {}
+        };
         for _ in 0..self.count {
-            match &self.object {
-                TextObject::Char(Direction::Forward) => { range.end += 1 }
-                TextObject::Char(Direction::Backward) => { range.end -= 1 }
-                TextObject::Line(direction) => {
+            match &self.mo {
+                MotionType::Char(Direction::Forward) => { range.end += 1 }
+                MotionType::Char(Direction::Backward) => { range.end -= 1 }
+                MotionType::Line(direction) => {
                     let new_line_index = match direction {
                         Direction::Forward => buf.next_line_index(range.end),
                         Direction::Backward => buf.last_line_index(range.end)
@@ -150,17 +223,17 @@ impl Motion {
                     let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(0)-new_line_index;
                     range.end = buf.current_column().min(line_len)+new_line_index;
                 },
-                TextObject::StartOfLine => {
+                MotionType::StartOfLine => {
                     range.end = buf.current_start_of_line(range.end);
                     let mut chars = buf.text.chars(range.end).map(CharClassify::class);
                     while chars.next().map_or(false, |cc| cc == CharClass::Whitespace) {
                         range.end += 1;
                     }
                 },
-                TextObject::EndOfLine => {
+                MotionType::EndOfLine => {
                     range.end = buf.next_line_index(range.end)-1;
                 }
-                TextObject::Word(Direction::Forward) => {
+                MotionType::Word(Direction::Forward) => {
                     // is the character under the cursor alphanumeric+ or a 'other non-blank'?
                     if buf.text.char_at(range.end).map(|c| c.is_alphanumeric()||c=='_').unwrap_or(false) {
                         // find the next whitespace or non-blank char
@@ -186,7 +259,7 @@ impl Motion {
                     }
                 },
 
-                TextObject::Word(Direction::Backward) => {
+                MotionType::Word(Direction::Backward) => {
                     let mut chars = buf.text.chars(range.end).rev()
                         .map(CharClassify::class)
                         .peekable();
@@ -206,7 +279,7 @@ impl Motion {
                     }
                 },
 
-                TextObject::BigWord(direction) => {
+                MotionType::BigWord(direction) => {
                     let next_blank = buf.text.dir_index_of(|sc| sc.is_ascii_whitespace(), range.start, *direction)
                                                 .unwrap_or(range.start);
                     range.end = match *direction {
@@ -217,10 +290,10 @@ impl Motion {
                     };
                 },
 
-                TextObject::EndOfWord(Direction::Forward) | TextObject::EndOfBigWord(Direction::Forward) => {
+                MotionType::EndOfWord(Direction::Forward) | MotionType::EndOfBigWord(Direction::Forward) => {
                     let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end)
                         .map(CharClassify::class));
-                    if let TextObject::EndOfBigWord(_) = self.object {
+                    if let MotionType::EndOfBigWord(_) = self.mo {
                         chars = Box::new(chars.map(|c| match c { 
                             CharClass::Punctuation => CharClass::Regular,
                             _ => c
@@ -254,10 +327,10 @@ impl Motion {
                 },
 
                 // of course, the most arcane is the simplest
-                TextObject::EndOfWord(Direction::Backward) | TextObject::EndOfBigWord(Direction::Backward) => {
+                MotionType::EndOfWord(Direction::Backward) | MotionType::EndOfBigWord(Direction::Backward) => {
                     let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end).rev()
                         .map(CharClassify::class));
-                    if let TextObject::EndOfBigWord(_) = self.object {
+                    if let MotionType::EndOfBigWord(_) = self.mo {
                         chars = Box::new(chars.map(|c| match c { 
                             CharClass::Punctuation => CharClass::Regular,
                             _ => c
@@ -266,7 +339,7 @@ impl Motion {
                     let mut chars = chars.peekable();
                     if let Some(starting_class) = chars.next() {
                         range.end -= 1;
-                        if(starting_class != CharClass::Whitespace) {
+                        if starting_class != CharClass::Whitespace {
                             while chars.peek().map_or(false, |cc| *cc == starting_class) {
                                 chars.next();
                                 range.end -= 1;
@@ -282,7 +355,7 @@ impl Motion {
                     }
                 },
 
-                TextObject::NextChar { c, place_before, direction } => {
+                MotionType::NextChar { c, place_before, direction } => {
                     range.end = buf.text.dir_index_of(|cc| cc == *c, match direction {
                         Direction::Forward => range.end+1,
                         Direction::Backward => range.end-1
@@ -295,11 +368,10 @@ impl Motion {
                     }
                 },
 
-                TextObject::WholeLine => {
+                MotionType::WholeLine => {
                     range.start = buf.current_start_of_line(range.start);
                     range.end = buf.next_line_index(range.end);
-                }
-
+                },
 
                 _ => unimplemented!()
             }
@@ -326,9 +398,8 @@ mod tests {
     fn txo_char() {
         let b = create_line_test_buffer();
         let mo = Motion {
-            object: TextObject::Char(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Char(Direction::Forward),
+            count: 1
         };
         assert_eq!(mo.range(&b), 4..5);
     }
@@ -338,9 +409,8 @@ mod tests {
 
         let b = create_line_test_buffer();
         let mo = Motion {
-            object: TextObject::Line(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Line(Direction::Forward),
+            count: 1
         };
         assert_eq!(mo.range(&b), 4..8);
     }
@@ -349,9 +419,8 @@ mod tests {
     fn txo_start_of_line() {
         let b = create_line_test_buffer();
         let mo = Motion {
-            object: TextObject::StartOfLine,
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::StartOfLine,
+            count: 1
         };
         assert_eq!(mo.range(&b), 4..4);
     }      
@@ -360,9 +429,8 @@ mod tests {
     fn txo_end_of_line() {
         let b = create_line_test_buffer();
         let mo = Motion {
-            object: TextObject::EndOfLine,
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::EndOfLine,
+            count: 1
         };
         assert_eq!(mo.range(&b), 4..7);
     }      
@@ -371,9 +439,8 @@ mod tests {
     fn txo_line_backward() {
         let b = create_line_test_buffer();
         let mo = Motion {
-            object: TextObject::Line(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Line(Direction::Backward),
+            count: 1
         };
         assert_eq!(mo.range(&b), 4..0);
     }
@@ -400,15 +467,13 @@ mod tests {
     fn txo_word_no_spaces() {
         let mut b = Buffer::with_text("word+++word+++ +ope");
         let mo = Motion {
-            object: TextObject::Word(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Word(Direction::Forward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [4,7,11,15].iter(), "forward");
         let mo = Motion {
-            object: TextObject::Word(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Word(Direction::Backward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [11,7,4,0].iter(), "backward");
     
@@ -418,16 +483,14 @@ mod tests {
     fn txo_word() {
         let mut b = create_word_test_buffer();
         let mo = Motion {
-            object: TextObject::Word(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Word(Direction::Forward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [5,10,11,13,15,20].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::Word(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::Word(Direction::Backward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [15,13,11,10,5,0].iter(), "backward");
     }
@@ -436,16 +499,14 @@ mod tests {
     fn txo_big_word() {
         let mut b = create_word_test_buffer();
         let mo = Motion {
-            object: TextObject::BigWord(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::BigWord(Direction::Forward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [5,10,15].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::BigWord(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::BigWord(Direction::Backward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [10,5,0].iter(), "backward");
     }
@@ -454,16 +515,14 @@ mod tests {
     fn txo_end_word() {
         let mut b = create_word_test_buffer();
         let mo = Motion {
-            object: TextObject::EndOfWord(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::EndOfWord(Direction::Forward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [3,8,10,12,13,18,23].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::EndOfWord(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::EndOfWord(Direction::Backward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [18,13,12,10,8,3].iter(), "backward");
     }
@@ -472,16 +531,14 @@ mod tests {
     fn txo_end_big_word() {
         let mut b = create_word_test_buffer();
         let mo = Motion {
-            object: TextObject::EndOfBigWord(Direction::Forward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::EndOfBigWord(Direction::Forward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [3,8,13,18,23].iter(), "forward");
 
         let mo = Motion {
-            object: TextObject::EndOfBigWord(Direction::Backward),
-            count: 1,
-            modifier: TextObjectMod::None
+            mo: MotionType::EndOfBigWord(Direction::Backward),
+            count: 1
         };
         run_repeated_test(&mut b, &mo, [18,13,8,3].iter(), "backward");
     }
@@ -491,20 +548,18 @@ mod tests {
         let mut b = Buffer::with_text("so!me s!ample tex!t");
         let correct = [2,7,17];
         let mo = Motion {
-            object: TextObject::NextChar {
+            mo: MotionType::NextChar {
                 c: '!', place_before: false, direction: Direction::Forward
             },
-            count: 1,
-            modifier: TextObjectMod::None
+            count: 1
         };
         run_repeated_test(&mut b, &mo, correct.iter(), "forward, place on");
 
         let mo = Motion {
-            object: TextObject::NextChar {
+            mo: MotionType::NextChar {
                 c: '!', place_before: false, direction: Direction::Backward
             },
-            count: 1,
-            modifier: TextObjectMod::None
+            count: 1
         };
         run_repeated_test(&mut b, &mo, correct.iter().rev().skip(1), "backward, place on");
     }
@@ -513,23 +568,94 @@ mod tests {
     fn txo_find_next_before() {
         let mut b = Buffer::with_text("so!me s!ample tex!t");
         let mo = Motion {
-            object: TextObject::NextChar {
+            mo: MotionType::NextChar {
                 c: '!', place_before: true, direction: Direction::Forward
             },
-            count: 1,
-            modifier: TextObjectMod::None
+            count: 1
         };
         run_repeated_test_then_offset(&mut b, &mo, [1,6,16].iter(), 1, "forward, place before");
 
         let mo = Motion {
-            object: TextObject::NextChar {
+            mo: MotionType::NextChar {
                 c: '!', place_before: true, direction: Direction::Backward
             },
-            count: 1,
-            modifier: TextObjectMod::None
+            count: 1
         };
         run_repeated_test_then_offset(&mut b, &mo, [8,3].iter(), -1, "backward, place before");
     }
+
+    #[test]
+    fn txo_object_a_word() {
+        let mut b = Buffer::with_text(" word   w0rd wr+d");
+        b.cursor_index = 3;
+        let mut mo = Motion {
+            mo: MotionType::An(TextObject::Word), count: 1
+        };
+        assert_eq!(mo.range(&b), 1..7);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..12);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..14);
+
+        b.cursor_index = 6;
+        mo.count = 1;
+        assert_eq!(mo.range(&b), 5..11);
+    }
+
+    #[test]
+    fn txo_object_inner_word() {
+        let mut b = Buffer::with_text(" word  word+ ");
+        b.cursor_index = 3;
+        let mut mo = Motion {
+            mo: MotionType::Inner(TextObject::Word), count: 1
+        };
+        assert_eq!(mo.range(&b), 1..4);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..6);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..10);
+
+        b.cursor_index = 6;
+        mo.count = 1;
+        assert_eq!(mo.range(&b), 5..6);
+    }
+
+    #[test]
+    fn txo_object_a_bigword() {
+        let mut b = Buffer::with_text(" wor+   w0rd wr+d");
+        b.cursor_index = 3;
+        let mut mo = Motion {
+            mo: MotionType::An(TextObject::BigWord), count: 1
+        };
+        assert_eq!(mo.range(&b), 1..7);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..12);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..16);
+
+        b.cursor_index = 6;
+        mo.count = 1;
+        assert_eq!(mo.range(&b), 5..11);
+    }
+
+    #[test]
+    fn txo_object_inner_bigword() {
+        let mut b = Buffer::with_text(" w--d  w--d+ ");
+        b.cursor_index = 3;
+        let mut mo = Motion {
+            mo: MotionType::Inner(TextObject::BigWord), count: 1
+        };
+        assert_eq!(mo.range(&b), 1..4);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..6);
+        mo.count += 1;
+        assert_eq!(mo.range(&b), 1..12); // this doesn't quite agree with Vim, but it seems questionable either way
+
+        b.cursor_index = 6;
+        mo.count = 1;
+        assert_eq!(mo.range(&b), 5..6);
+    }
+
 
 }
 

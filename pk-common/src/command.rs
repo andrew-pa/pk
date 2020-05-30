@@ -43,27 +43,27 @@ impl Command {
             Some('i') => return Ok(Command::ChangeMode(ModeTag::Insert)),
             Some('I') => return Ok(Command::Edit {
                     op: Operator::MoveAndEnterMode(ModeTag::Insert),
-                    mo: Motion { count: 1, object: TextObject::StartOfLine, modifier: TextObjectMod::None },
+                    mo: Motion { count: 1, mo: MotionType::StartOfLine },
                     op_count: 1, target_register: '"'
             }),
             Some('a') => return Ok(Command::Edit {
                 op: Operator::MoveAndEnterMode(ModeTag::Insert),
-                mo: Motion { count: 1, object: TextObject::Char(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Char(Direction::Forward) },
                 op_count: 1, target_register: '"'
             }),
             Some('A') => return Ok(Command::Edit {
                 op: Operator::MoveAndEnterMode(ModeTag::Insert),
-                mo: Motion { count: 1, object: TextObject::EndOfLine, modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::EndOfLine },
                 op_count: 1, target_register: '"'
             }),
             Some('o') => return Ok(Command::Edit {
                 op: Operator::NewLineAndEnterMode(Direction::Forward, ModeTag::Insert),
-                mo: Motion { count: 1, object: TextObject::Line(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Line(Direction::Forward) },
                 op_count: 1, target_register: '"'
             }),
             Some('O') => return Ok(Command::Edit {
                 op: Operator::NewLineAndEnterMode(Direction::Backward, ModeTag::Insert),
-                mo: Motion { count: 1, object: TextObject::Line(Direction::Backward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Line(Direction::Backward) },
                 op_count: 1, target_register: '"'
             }),
 
@@ -73,7 +73,7 @@ impl Command {
                 schars.next();
                 return Ok(Command::Edit {
                     op: Operator::ReplaceChar(schars.next().ok_or(Error::IncompleteCommand)?),
-                    mo: Motion { count: 0, object: TextObject::Char(Direction::Forward), modifier: TextObjectMod::None },
+                    mo: Motion { count: 0, mo: MotionType::Char(Direction::Forward) },
                     op_count: 1, target_register: '"'
                 })
             },
@@ -96,7 +96,7 @@ impl Command {
             Some('>') => Some(Operator::Indent(Direction::Forward)),
             Some('x') => return Ok(Command::Edit {
                 op: Operator::Delete, op_count: opcount.unwrap_or(1), 
-                mo: Motion { count: 1, object: TextObject::Char(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 2, mo: MotionType::Char(Direction::Forward) },
                 target_register: target_reg.unwrap_or('"')
             }),
             Some(_) => None,
@@ -127,7 +127,24 @@ impl Command {
                 buf.cursor_index = end;
                 Ok(None)
             },
-            Command::Edit { op, op_count, mo, target_register } => Ok(None),
+            Command::Edit { op, op_count, mo, target_register } => {
+                match op {
+                   Operator::Delete => {
+                       let mut r = mo.range(buf);
+                       if let MotionType::An(_) = mo.mo {
+                           r.end += 1;
+                       }
+                       if let MotionType::Inner(_) = mo.mo {
+                           r.end += 1;
+                       }
+                       println!("{:?}",r);
+                       buf.text.delete_range(r.start, r.end-1);
+                       buf.cursor_index = r.start;
+                       Ok(None)
+                   },
+                   _ => unimplemented!()
+                }
+            },
             &Command::ChangeMode(mode) => Ok(Some(mode))
         }
     }
@@ -141,34 +158,38 @@ mod tests {
         assert_eq!(Command::parse("i")?,
             Command::ChangeMode(ModeTag::Insert));
         assert_eq!(Command::parse("x")?,
-            Command::Edit{op: Operator::Delete, mo: Motion{count:1,object:TextObject::Char(Direction::Forward), modifier: TextObjectMod::None}, op_count: 1, target_register: '"'});
+            Command::Edit{
+                op: Operator::Delete, op_count: 1,
+                mo: Motion{count:1, mo: MotionType::Char(Direction::Forward) },
+                target_register: '"'
+            });
         assert_eq!(Command::parse("w")?,
-            Command::Move(Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None }));
+            Command::Move(Motion { count: 1, mo: MotionType::Word(Direction::Forward) }));
         assert_eq!(Command::parse("dw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
-                mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Word(Direction::Forward) },
                 target_register: '"'
             }
         );
         assert_eq!(Command::parse("2dw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 2,
-                mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Word(Direction::Forward) },
                 target_register: '"'
             }
         );
         assert_eq!(Command::parse("d2w")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
-                mo: Motion { count: 2, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 2, mo: MotionType::Word(Direction::Forward) },
                 target_register: '"'
             }
         );
         assert_eq!(Command::parse("\"adw")?,
             Command::Edit{
                 op: Operator::Delete, op_count: 1,
-                mo: Motion { count: 1, object: TextObject::Word(Direction::Forward), modifier: TextObjectMod::None },
+                mo: Motion { count: 1, mo: MotionType::Word(Direction::Forward) },
                 target_register: 'a'
             }
         );

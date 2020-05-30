@@ -103,7 +103,7 @@ impl<'t> Iterator for TableChars<'t> {
     type Item = char;
 
     fn next(&mut self) -> Option<char> {
-        if self.current_piece > self.table.pieces.len() { return None; }
+        if self.current_piece >= self.table.pieces.len() { return None; }
         let curp = &self.table.pieces[self.current_piece];
         let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
         self.current_index += 1;
