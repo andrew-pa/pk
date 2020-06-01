@@ -12,6 +12,7 @@ pub struct Piece {
 impl Piece {
     /// `at` is relative to the beginning of the piece
     fn split(self, at: usize) -> (Piece, Piece) {
+        assert!(at <= self.length);
         (Piece { source: self.source, start: self.start, length: at },
          Piece { source: self.source, start: self.start+at, length: self.length-at })
     }
@@ -258,9 +259,7 @@ impl<'table> PieceTable {
         TableMutator { piece_ix: insertion_piece_index }
     }
 
-    pub fn delete_range(&mut self, start: usize, end: usize) {
-        assert!(start != end);
-
+    pub fn delete_range(&mut self, start: usize, mut end: usize) {
         let mut start_piece: Option<(usize,usize)> = None;
         let mut end_piece:   Option<(usize,usize)> = None;
         let mut mid_pieces:  Vec<usize>            = Vec::new();
@@ -270,13 +269,26 @@ impl<'table> PieceTable {
         for (i,p) in self.pieces.iter().enumerate() {
             if start < global_index && end >= global_index+p.length {
                 mid_pieces.push(i);
-            } else if start >= global_index && start < global_index+p.length {
-                if end > global_index && end <= global_index+p.length {
+            } else if start >= global_index && start <= global_index+p.length {
+                if end >= global_index && end < global_index+p.length {
                     // this piece totally contains this range
-                    if start-global_index == 0 && end-global_index == p.length {
-                        action.push(Change::Delete { piece_index: i, old: self.pieces.remove(i) });
+                    if start-global_index == 0 {
+                        if end-global_index == 0 {
+                            let mut np = p.clone();
+                            np.start += 1;
+                            np.length -= 1;
+                            if np.length == 0 {
+                                action.push(Change::Delete { piece_index: i, old: self.pieces.remove(i) });
+                            } else {
+                                action.push(Change::Modify { piece_index: i, old: *p, new: np });
+                                self.pieces[i] = np;
+                            }
+                        } else if end-global_index == p.length {
+                            action.push(Change::Delete { piece_index: i, old: self.pieces.remove(i) });
+                        }
                     } else {
                         let (left_keep, deleted_right) = p.split(start-global_index);
+                        assert!(left_keep.length != 0, "{} {} {}, {}", start, end, global_index, p.length);
                         let (_deleted, right_keep) = deleted_right.split(end-(global_index+left_keep.length-1));
                         action.push(Change::Modify { piece_index: i, old: p.clone(), new: left_keep });
                         action.push(Change::Insert { piece_index: i+1, new: right_keep });
@@ -484,7 +496,23 @@ mod tests {
         pt.insert_range("X", 3); //hel|X|lo
         println!("{:#?}", pt);
         pt.delete_range(1,4);
+        println!("{:#?}", pt);
         assert_eq!(pt.text(), "hlo");
+        println!("{:#?}", pt);
+    }
+
+    #[test]
+    fn delete_range_single_char() {
+        let mut pt = PieceTable::with_text("hello");
+        pt.delete_range(2,2);
+        assert_eq!(pt.text(), "helo");
+        println!("{:#?} {}", pt, pt.text());
+        pt.delete_range(2,2);
+        assert_eq!(pt.text(), "heo");
+        println!("{:#?} {}", pt, pt.text());
+        pt.delete_range(1,1);
+        println!("{:#?} {}", pt, pt.text());
+        assert_eq!(pt.text(), "ho");
         println!("{:#?}", pt);
     }
 

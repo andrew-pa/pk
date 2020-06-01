@@ -96,7 +96,7 @@ impl Command {
             Some('>') => Some(Operator::Indent(Direction::Forward)),
             Some('x') => return Ok(Command::Edit {
                 op: Operator::Delete, op_count: opcount.unwrap_or(1), 
-                mo: Motion { count: 2, mo: MotionType::Char(Direction::Forward) },
+                mo: Motion { count: 1, mo: MotionType::Char(Direction::Forward) },
                 target_register: target_reg.unwrap_or('"')
             }),
             Some(_) => None,
@@ -137,7 +137,6 @@ impl Command {
                        if let MotionType::Inner(_) = mo.mo {
                            r.end += 1;
                        }
-                       println!("{:?}",r);
                        buf.text.delete_range(r.start, r.end-1);
                        buf.cursor_index = r.start;
                        Ok(None)

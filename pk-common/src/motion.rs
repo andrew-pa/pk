@@ -34,7 +34,6 @@ impl TextObject {
         // include = true->An, false->Inner
         match self {
             TextObject::Word | TextObject::BigWord => {
-                println!("---");
                 let bigword = *self == TextObject::BigWord;
                 let mut range = buf.cursor_index..buf.cursor_index;
                 // find start of range
@@ -225,9 +224,10 @@ impl Motion {
                 },
                 MotionType::StartOfLine => {
                     range.end = buf.current_start_of_line(range.end);
-                    let mut chars = buf.text.chars(range.end).map(CharClassify::class);
-                    while chars.next().map_or(false, |cc| cc == CharClass::Whitespace) {
+                    let mut chars = buf.text.chars(range.end).map(CharClassify::class).peekable();
+                    while chars.peek().map_or(false, |cc| *cc == CharClass::Whitespace) {
                         range.end += 1;
+                        chars.next();
                     }
                 },
                 MotionType::EndOfLine => {
