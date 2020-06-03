@@ -12,9 +12,10 @@ use pk_common::command::*;
 use piece_table_render::PieceTableRenderer;
 
 use std::fmt;
+use std::collections::HashMap;
 
 trait Mode : fmt::Display {
-    fn event(&mut self, e: runic::Event, buf: &mut Buffer) -> Result<Option<Box<dyn Mode>>, Error>;
+    fn event(&mut self, e: runic::Event, buf: &mut Buffer, registers: &mut HashMap<char, String>) -> Result<Option<Box<dyn Mode>>, Error>;
     fn cursor_style(&self) -> piece_table_render::CursorStyle { piece_table_render::CursorStyle::Block }
 }
 
@@ -36,7 +37,7 @@ impl fmt::Display for NormalMode {
 
 
 impl Mode for NormalMode {
-    fn event(&mut self, e: runic::Event, buf: &mut Buffer) -> Result<Option<Box<dyn Mode>>, Error> {
+    fn event(&mut self, e: runic::Event, buf: &mut Buffer, registers: &mut HashMap<char, String>) -> Result<Option<Box<dyn Mode>>, Error> {
         match e {
             Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), .. }, .. } => {
                 match vk {
@@ -51,7 +52,13 @@ impl Mode for NormalMode {
                 self.pending_buf.push(c);
                 match Command::parse(&self.pending_buf) {
                     Ok(cmd) => {
-                        let res = cmd.execute(buf)?;
+                        let res = match cmd.execute(buf, registers) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                self.pending_buf.clear();
+                                return Err(e);
+                            }
+                        };
                         self.pending_buf.clear();
                         match res {
                             None | Some(ModeTag::Normal) => Ok(None),
@@ -91,7 +98,7 @@ impl fmt::Display for InsertMode {
 impl Mode for InsertMode {
     fn cursor_style(&self) -> piece_table_render::CursorStyle { piece_table_render::CursorStyle::Line }
 
-    fn event(&mut self, e: Event, buf: &mut Buffer) -> Result<Option<Box<dyn Mode>>, Error> {
+    fn event(&mut self, e: Event, buf: &mut Buffer, registers: &mut HashMap<char, String>) -> Result<Option<Box<dyn Mode>>, Error> {
         match e {
             Event::ReceivedCharacter(c) if !c.is_control() => {
                 self.tmut.push_char(&mut buf.text, c);
@@ -125,17 +132,18 @@ struct Server {
 }
 
 struct PkApp {
-    fnt: Font, buf: Buffer, txr: PieceTableRenderer,
+    fnt: Font, buf: Buffer, registers: HashMap<char, String>,
+    txr: PieceTableRenderer,
     mode: Box<dyn Mode>, last_err: Option<Error>
 }
 
 impl runic::App for PkApp {
     fn init(rx: &mut RenderContext) -> Self {
-        let fnt = rx.new_font("Fira Code", 12.0, FontWeight::Regular, FontStyle::Normal).unwrap();
+        let fnt = rx.new_font("Fira Code", 14.0, FontWeight::Regular, FontStyle::Normal).unwrap();
         let txr = PieceTableRenderer::init(rx, fnt.clone());
         PkApp {
             fnt, txr, buf: Buffer::from_file(&std::path::Path::new("pk-runic-client/src/main.rs")).unwrap(),
-            mode: Box::new(NormalMode::new()), last_err: None
+            mode: Box::new(NormalMode::new()), last_err: None, registers: HashMap::new()
         }
     }
 
@@ -146,7 +154,7 @@ impl runic::App for PkApp {
         match e {
             Event::CloseRequested => return true,
             _ => {
-                match self.mode.event(e, &mut self.buf) {
+                match self.mode.event(e, &mut self.buf, &mut self.registers) {
                     Ok(Some(new_mode)) => { self.mode = new_mode },
                     Ok(None) => {},
                     Err(e) => self.last_err = Some(e)

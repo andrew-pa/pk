@@ -328,10 +328,9 @@ impl<'table> PieceTable {
     }
 
     pub fn copy_range(&mut self, start: usize, end: usize) -> String {
-        let mut buf = String::new();
+        let mut buf = String::with_capacity(end-start);
         let mut global_index = 0usize;
         for p in self.pieces.iter() {
-            println!("{}", buf);
             if start < global_index && end >= global_index+p.length {
                 buf.push_str(&self.sources[p.source][p.start..(p.start + p.length)]); 
             } else if start >= global_index && start < global_index+p.length {

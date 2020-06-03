@@ -29,6 +29,18 @@ pub enum TextObject {
     Word, BigWord, Paragraph, Block(char)
 }
 
+fn matching_block_char(c: char) -> char {
+    match c {
+        '{' => '}',
+        '(' => ')',
+        '[' => ']',
+        '<' => '>',
+        '"' => '"',
+        '\'' => '\'',
+        _ => panic!("no matching block char for {}", c)
+    }
+}
+
 impl TextObject {
     fn range(&self, buf: &Buffer, count: usize, include: bool) -> Range<usize> {
         // include = true->An, false->Inner
@@ -70,6 +82,48 @@ impl TextObject {
                     }
                 }
                 range.end -= 1;
+                range
+            },
+            TextObject::Block(open_char) => {
+                println!("---");
+                let mut range = buf.cursor_index..buf.cursor_index;
+
+                let mut chars = buf.text.chars(range.start).rev().peekable();
+                while chars.peek().map(|cc| cc != open_char).unwrap_or(false) {
+                    chars.next();
+                    range.start -= 1;
+                }
+                if !include { range.start += 1; }
+
+                let close_char = matching_block_char(*open_char);
+                let mut chars = buf.text.chars(range.end).peekable();
+                let mut count = 0;
+                loop {
+                    match chars.peek() {
+                        Some(ch) if *ch == *open_char => {
+                            println!("+");
+                            count += 1;
+                        }
+                        Some(ch) if *ch == close_char => {
+                            if count == 0 {
+                                break;
+                            } else {
+                                println!("-");
+                                count -= 1;
+                            }
+                        },
+                        Some(_) => { }
+                        None => break
+                    }
+                    range.end += 1;
+                    println!("{:?}",chars.next());
+                }
+                /*while chars.peek().map(|cc| *cc != mc).unwrap_or(false) {
+                    chars.next();
+                    range.end += 1;
+                }*/
+                if !include { range.end -= 1; }
+
                 range
             },
             _ => unimplemented!()
@@ -172,6 +226,7 @@ impl Motion {
                    Some('W') => TextObject::BigWord,
                    Some('p') => TextObject::Paragraph,
                    Some('{') | Some('}') => TextObject::Block('{'),
+                   Some('(') | Some(')') => TextObject::Block('('),
                    Some('[') | Some(']') => TextObject::Block('['),
                    Some('<') | Some('>') => TextObject::Block('<'),
                    Some('"')  => TextObject::Block('"'),
@@ -654,6 +709,56 @@ mod tests {
         b.cursor_index = 6;
         mo.count = 1;
         assert_eq!(mo.range(&b), 5..6);
+    }
+
+    #[test]
+    fn txo_object_a_block() {
+        let mut b = Buffer::with_text("<(bl(o)ck) {\nblock\n}>");
+        let mut mo = Motion {
+            mo: MotionType::An(TextObject::Block('<')), count: 1
+        };
+
+        assert_eq!(mo.range(&b), 0..20, "on <");
+        b.cursor_index += 3;
+        assert_eq!(mo.range(&b), 0..20, "in <");
+
+        b.cursor_index = 1;
+        mo.mo = MotionType::An(TextObject::Block('('));
+        assert_eq!(mo.range(&b), 1..9, "on first (");
+        b.cursor_index += 2;
+        assert_eq!(mo.range(&b), 1..9, "in first (");
+
+        b.cursor_index += 2;
+        assert_eq!(mo.range(&b), 4..6, "in nested (");
+
+        b.cursor_index = 15;
+        mo.mo = MotionType::An(TextObject::Block('{'));
+        assert_eq!(mo.range(&b), 11..19, "in {{");
+    }
+
+    #[test]
+    fn txo_object_inner_block() {
+        let mut b = Buffer::with_text("<(bl(o)ck) {\nblock\n}>");
+        let mut mo = Motion {
+            mo: MotionType::Inner(TextObject::Block('<')), count: 1
+        };
+
+        assert_eq!(mo.range(&b), 1..19, "on <");
+        b.cursor_index += 3;
+        assert_eq!(mo.range(&b), 1..19, "in <");
+
+        b.cursor_index = 1;
+        mo.mo = MotionType::Inner(TextObject::Block('('));
+        assert_eq!(mo.range(&b), 2..8, "on first (");
+        b.cursor_index += 2;
+        assert_eq!(mo.range(&b), 2..8, "in first (");
+
+        b.cursor_index += 2;
+        assert_eq!(mo.range(&b), 5..5, "in nested (");
+
+        b.cursor_index = 15;
+        mo.mo = MotionType::Inner(TextObject::Block('{'));
+        assert_eq!(mo.range(&b), 12..18, "in {{");
     }
 
 

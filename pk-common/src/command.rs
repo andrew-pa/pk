@@ -2,16 +2,15 @@
 use super::*;
 use super::motion::*;
 use std::ops::Range;
+use std::collections::HashMap;
 
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Operator {
     Repeat,
-    Undo,
     Delete,
     Change,
     Yank,
-    Put,
     Indent(Direction),
     MoveAndEnterMode(ModeTag),
     NewLineAndEnterMode(Direction, ModeTag),
@@ -26,6 +25,12 @@ pub enum ModeTag {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Move(Motion),
+    Undo { count: usize },
+    Put {
+        count: usize,
+        source_register: char,
+        clear_register: bool
+    },
     Edit {
         op: Operator,
         op_count: usize,
@@ -87,17 +92,26 @@ impl Command {
         let opcount = take_number(&mut schars);
         let op = match schars.peek() {
             Some('.') => Some(Operator::Repeat),
-            Some('u') => Some(Operator::Undo),
+            Some('u') => return Ok(Command::Undo { count: opcount.unwrap_or(1) }),
             Some('d') => Some(Operator::Delete),
             Some('c') => Some(Operator::Change),
             Some('y') => Some(Operator::Yank),
-            Some('p') => Some(Operator::Put),
             Some('<') => Some(Operator::Indent(Direction::Backward)),
             Some('>') => Some(Operator::Indent(Direction::Forward)),
             Some('x') => return Ok(Command::Edit {
                 op: Operator::Delete, op_count: opcount.unwrap_or(1), 
                 mo: Motion { count: 1, mo: MotionType::Char(Direction::Forward) },
                 target_register: target_reg.unwrap_or('"')
+            }),
+            Some('p') => return Ok(Command::Put {
+                count: opcount.unwrap_or(1), 
+                source_register: target_reg.unwrap_or('"'),
+                clear_register: true
+            }),
+            Some('P') => return Ok(Command::Put {
+                count: opcount.unwrap_or(1), 
+                source_register: target_reg.unwrap_or('"'),
+                clear_register: false
             }),
             Some(_) => None,
             None => None
@@ -120,28 +134,79 @@ impl Command {
         }
     }
 
-    pub fn execute(&self, buf: &mut Buffer) -> Result<Option<ModeTag>, Error> {
+    pub fn execute(&self, buf: &mut Buffer, registers: &mut HashMap<char, String>) -> Result<Option<ModeTag>, Error> {
         match self {
             Command::Move(mo) => {
                 let Range { start: _, end } = mo.range(buf);
                 buf.cursor_index = end;
                 Ok(None)
             },
+            Command::Put { count, source_register, clear_register } => {
+                let src = registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
+                buf.text.insert_range(src, buf.cursor_index);
+                buf.cursor_index += src.len();
+                if *clear_register {
+                    registers.remove(source_register);
+                }
+                Ok(None)
+            },
+            Command::Undo { count } => {
+                for _ in 0..*count {
+                    buf.text.undo();
+                }
+                Ok(None)
+            },
             Command::Edit { op, op_count, mo, target_register } => {
                 match op {
-                   Operator::Delete => {
-                       let mut r = mo.range(buf);
-                       if let MotionType::An(_) = mo.mo {
-                           r.end += 1;
-                       }
-                       if let MotionType::Inner(_) = mo.mo {
-                           r.end += 1;
-                       }
-                       buf.text.delete_range(r.start, r.end-1);
-                       buf.cursor_index = r.start;
-                       Ok(None)
-                   },
-                   _ => unimplemented!()
+                    Operator::Delete | Operator::Change => {
+                        let mut r = mo.range(buf);
+                        if let MotionType::An(_) = mo.mo {
+                            r.end += 1;
+                        }
+                        if let MotionType::Inner(_) = mo.mo {
+                            r.end += 1;
+                        }
+                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end-1));
+                        buf.text.delete_range(r.start, r.end-1);
+                        buf.cursor_index = r.start;
+                        Ok(if *op == Operator::Change {
+                            Some(ModeTag::Insert)
+                        } else {
+                            None
+                        })
+                    },
+                    Operator::Yank => {
+                        let mut r = mo.range(buf);
+                        if let MotionType::An(_) = mo.mo {
+                            r.end += 1;
+                        }
+                        if let MotionType::Inner(_) = mo.mo {
+                            r.end += 1;
+                        }
+                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end-1));
+                        Ok(None)
+                    },
+                    Operator::ReplaceChar(c) => {
+                        buf.text.delete_range(buf.cursor_index, buf.cursor_index);
+                        let mut m = buf.text.insert_mutator(buf.cursor_index);
+                        m.push_char(&mut buf.text, *c);
+                        Ok(None)
+                    },
+                    Operator::MoveAndEnterMode(mode) => {
+                        let Range { start: _, end } = mo.range(buf);
+                        buf.cursor_index = end;
+                        Ok(Some(*mode))
+                    },
+                    Operator::NewLineAndEnterMode(dir, mode) => {
+                        let idx = match dir {
+                            Direction::Forward => buf.next_line_index(buf.cursor_index),
+                            Direction::Backward => buf.current_start_of_line(buf.cursor_index)
+                        };
+                        buf.text.insert_range("\n", idx);
+                        buf.cursor_index = idx;
+                        Ok(Some(*mode))
+                    }
+                    _ => unimplemented!()
                 }
             },
             &Command::ChangeMode(mode) => Ok(Some(mode))

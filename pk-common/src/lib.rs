@@ -15,6 +15,7 @@ pub enum Error {
     IncompleteCommand,
     InvalidCommand(String),
     UnknownCommand(String),
+    EmptyRegister(char),
     Other(Box<dyn ErrorTrait + 'static>)
 }
 
@@ -24,6 +25,7 @@ impl std::fmt::Display for Error {
             Error::IncompleteCommand => write!(f, "incomplete command"),
             Error::InvalidCommand(cmd) => write!(f, "invalid command: {}", cmd),
             Error::UnknownCommand(cmd) => write!(f, "unknown command: {}", cmd),
+            Error::EmptyRegister(c) => write!(f, "nothing in register \"{}", c),
             Error::Other(e) => e.fmt(f)
         }
     }
