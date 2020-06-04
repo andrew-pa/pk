@@ -182,7 +182,7 @@ impl runic::App for PkApp {
         let mut y = 30.0;
         let mut global_index = 0;
         for p in self.buf.text.pieces.iter() {
-            rx.draw_text(Rect::xywh(200.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
+            rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
                                                                         &self.buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
             global_index += p.length;
             y += 16.0;

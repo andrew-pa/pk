@@ -65,6 +65,8 @@ pub struct PieceTable {
     pub history: Vec<Action>,
     pub next_action_id: usize
 }
+// is it ok to have empty, zero length pieces in the table? for now these algorithms assume that it
+// is, which is a bit janky but oh well. A garbage collection routine could probably be written
 
 impl Default for PieceTable {
     fn default() -> PieceTable {
@@ -192,7 +194,7 @@ impl<'table> PieceTable {
         self.sources.push(String::from(s));
         let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
-            println!("{} {:?}", i, p);
+            //println!("{} {:?}", i, p);
             if index >= ix && index < ix+p.length {
                 if index == ix { // we're inserting at the start of this piece
                     self.pieces.insert(i, new_piece);
@@ -261,7 +263,8 @@ impl<'table> PieceTable {
     }
 
     /// deletes the range [start, end)
-    pub fn delete_range(&mut self, start: usize, mut end: usize) {
+    pub fn delete_range(&mut self, start: usize, end: usize) {
+        assert!(end > start);
         let mut start_piece: Option<(usize,usize)> = None;
         let mut end_piece:   Option<(usize,usize)> = None;
         let mut mid_pieces:  Vec<usize>            = Vec::new();
@@ -270,12 +273,17 @@ impl<'table> PieceTable {
 
         for (i,p) in self.pieces.iter().enumerate() {
             if start < global_index && end >= global_index+p.length {
+                // the range totally contains this piece
                 mid_pieces.push(i);
-            } else if start >= global_index && start <= global_index+p.length {
+            } else if start >= global_index && start < global_index+p.length {
+                // the range starts in this piece
                 if end >= global_index && end < global_index+p.length {
-                    // this piece totally contains this range
-                    if start-global_index == 0 {
+                    // this piece totally contains this range since this piece also contains the
+                    // end of the range
+                    /*if start-global_index == 0 {
+                        println!("start-global_index == 0");
                         if end-global_index == 0 {
+                            println!("end-global_index == 0");
                             let mut np = p.clone();
                             np.start += 1;
                             np.length -= 1;
@@ -286,16 +294,22 @@ impl<'table> PieceTable {
                                 self.pieces[i] = np;
                             }
                         } else if end-global_index == p.length {
+                            println!("end-global_index == p.length");
                             action.push(Change::Delete { piece_index: i, old: self.pieces.remove(i) });
                         }
-                    } else {
+                        panic!("uhoh");
+                    } else*/ {
                         let (left_keep, deleted_right) = p.split(start-global_index);
-                        assert!(left_keep.length != 0, "{} {} {}, {}", start, end, global_index, p.length);
-                        let (_deleted, right_keep) = deleted_right.split(end-(global_index+left_keep.length-1));
-                        action.push(Change::Modify { piece_index: i, old: p.clone(), new: left_keep });
-                        action.push(Change::Insert { piece_index: i+1, new: right_keep });
-                        self.pieces[i] = left_keep;
-                        self.pieces.insert(i+1, right_keep);
+                        let (_deleted, right_keep) = deleted_right.split(end-(global_index+left_keep.length));
+                        if left_keep.length == 0 {
+                            action.push(Change::Modify { piece_index: i, old: p.clone(), new: right_keep });
+                            self.pieces[i] = right_keep;
+                        } else {
+                            action.push(Change::Modify { piece_index: i, old: p.clone(), new: left_keep });
+                            action.push(Change::Insert { piece_index: i+1, new: right_keep });
+                            self.pieces[i] = left_keep;
+                            self.pieces.insert(i+1, right_keep);
+                        }
                     }
                     self.history.push(action);
                     return;
@@ -303,12 +317,13 @@ impl<'table> PieceTable {
                     start_piece = Some((i, start-global_index));
                 }
             } else if end >= global_index && end < global_index+p.length {
+                // this piece contains the end only
                 end_piece = Some((i, end-global_index));
             }
             global_index += p.length;
         }
 
-        println!("start: {:?}\nend: {:?}\nmid: {:?}", start_piece, end_piece, mid_pieces);
+        //println!("start: {:?}\nend: {:?}\nmid: {:?}", start_piece, end_piece, mid_pieces);
 
         let (start_piece, start_cut) = start_piece.unwrap();
         let (end_piece,   end_cut)   = end_piece.unwrap();
@@ -346,7 +361,7 @@ impl<'table> PieceTable {
                 if end > global_index && end < global_index+p.length || start == end {
                     // the range is totally contained within this piece
                     //println!("b");
-                    buf.push_str(&self.sources[p.source][p.start+(start-global_index)..(p.start + (end-global_index+1))]);
+                    buf.push_str(&self.sources[p.source][p.start+(start-global_index)..(p.start + (end-global_index))]);
                     break;
                 } else {
                     // this piece has the start of the range in it
@@ -356,7 +371,7 @@ impl<'table> PieceTable {
             } else if end >= global_index && end < global_index+p.length {
                 // this piece has the end of the range in it
                 //println!("d");
-                buf.push_str(&self.sources[p.source][p.start .. (p.start + end-global_index+1)]);
+                buf.push_str(&self.sources[p.source][p.start .. (p.start + end-global_index)]);
             }
             global_index += p.length;
         }
@@ -476,21 +491,22 @@ mod tests {
     use crate::piece_table::*;
 
     #[test]
-    //#[ignore]
+    #[ignore]
     fn fuzz_api() -> Result<(), Box<dyn std::error::Error>> {
         let mut pt = PieceTable::with_text("asdf\nasdf\nasdf\nasdf\n");
         
-        for i in 0..1000 {
+        for i in 0..10_000 {
             if pt.text().len() == 0 { println!("deleted entire text"); break; }
             match (rand::random::<usize>()+1) % 6 {
                 0 => {
                     let mut tx = pt.text();
                     let x = rand::random::<usize>() % tx.len();
-                    let itxt = match rand::random::<usize>() % 4 {
+                    let itxt = match rand::random::<usize>() % 5 {
                         0 => "",
                         1 => "\n",
                         2 => "sequence",
                         3 => "te st",
+                        4 => "this is a very, very large insertion",
                         _ => unreachable!()
                     };
                     println!("insert_range({}, {})", itxt.escape_debug(), x);
@@ -502,16 +518,17 @@ mod tests {
                     let tx = pt.text();
                     let s = rand::random::<usize>() % tx.len();
                     let e = s + rand::random::<usize>() % (tx.len() - s);
+                    if s == e { continue; }
                     println!("delete_range({}, {})", s, e);
                     pt.delete_range(s, e);
-                    assert_eq!(pt.text(), String::from(&tx[..s]) + &tx[(e+1)..]);
+                    assert_eq!(pt.text(), String::from(&tx[..s]) + &tx[e..]);
                 },
                 2 => {
                     let tx = pt.text();
                     let s = rand::random::<usize>() % tx.len();
                     let e = s + rand::random::<usize>() % (tx.len() - s);
                     println!("copy_range({}, {})", s, e);
-                    assert_eq!(pt.copy_range(s, e), tx[s..(e+1)]);
+                    assert_eq!(pt.copy_range(s, e), tx[s..e]);
                 },
                 3 => {
                     let tx = pt.text();
@@ -621,13 +638,13 @@ mod tests {
     #[test]
     fn delete_range_single_char() {
         let mut pt = PieceTable::with_text("hello");
-        pt.delete_range(2,2);
+        pt.delete_range(2,3);
         assert_eq!(pt.text(), "helo");
         println!("{:#?} {}", pt, pt.text());
-        pt.delete_range(2,2);
+        pt.delete_range(2,3);
         assert_eq!(pt.text(), "heo");
         println!("{:#?} {}", pt, pt.text());
-        pt.delete_range(1,1);
+        pt.delete_range(1,2);
         println!("{:#?} {}", pt, pt.text());
         assert_eq!(pt.text(), "ho");
         println!("{:#?}", pt);
@@ -636,7 +653,7 @@ mod tests {
     #[test]
     fn copy_range_single_piece() {
         let mut pt = PieceTable::with_text("hello");
-        assert_eq!(pt.copy_range(1,3), "ell");
+        assert_eq!(pt.copy_range(1,3), "el");
         println!("{:#?}", pt);
     }
  
@@ -645,7 +662,7 @@ mod tests {
         let mut pt = PieceTable::with_text("hello");
         pt.insert_range("X", 3); //hel|X|lo
         println!("{:#?}", pt);
-        assert_eq!(pt.copy_range(1,4), "elXl");
+        assert_eq!(pt.copy_range(1,5), "elXl");
         println!("{:#?}", pt);
     }
 
@@ -689,7 +706,7 @@ mod tests {
     fn undo_delete_range_single_piece() {
         let mut pt = PieceTable::with_text("hello");
         pt.delete_range(1,3);
-        assert_eq!(pt.text(), "ho");
+        assert_eq!(pt.text(), "hlo");
         pt.undo();
         assert_eq!(pt.text(), "hello");
     }

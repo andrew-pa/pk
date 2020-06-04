@@ -166,7 +166,7 @@ impl Command {
                         if let MotionType::Inner(_) = mo.mo {
                             r.end += 1;
                         }
-                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end-1));
+                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                         buf.text.delete_range(r.start, r.end);
                         buf.cursor_index = r.start;
                         Ok(if *op == Operator::Change {
@@ -183,7 +183,7 @@ impl Command {
                         if let MotionType::Inner(_) = mo.mo {
                             r.end += 1;
                         }
-                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end-1));
+                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                         Ok(None)
                     },
                     Operator::ReplaceChar(c) => {
