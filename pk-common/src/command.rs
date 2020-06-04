@@ -167,7 +167,7 @@ impl Command {
                             r.end += 1;
                         }
                         registers.insert(*target_register, buf.text.copy_range(r.start, r.end-1));
-                        buf.text.delete_range(r.start, r.end-1);
+                        buf.text.delete_range(r.start, r.end);
                         buf.cursor_index = r.start;
                         Ok(if *op == Operator::Change {
                             Some(ModeTag::Insert)

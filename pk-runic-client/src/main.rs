@@ -142,7 +142,7 @@ impl runic::App for PkApp {
         let fnt = rx.new_font("Fira Code", 14.0, FontWeight::Regular, FontStyle::Normal).unwrap();
         let txr = PieceTableRenderer::init(rx, fnt.clone());
         PkApp {
-            fnt, txr, buf: Buffer::from_file(&std::path::Path::new("pk-runic-client/src/main.rs")).unwrap(),
+            fnt, txr, buf: Buffer::default(),//from_file(&std::path::Path::new("pk-runic-client/src/main.rs")).unwrap(),
             mode: Box::new(NormalMode::new()), last_err: None, registers: HashMap::new()
         }
     }
@@ -178,6 +178,15 @@ impl runic::App for PkApp {
         self.txr.cursor_index = self.buf.cursor_index;
         self.txr.cursor_style = self.mode.cursor_style();
         self.txr.paint(rx, &self.buf.text, Rect::xywh(8.0, 20.0, rx.bounds().w-8.0, rx.bounds().h-20.0));
+
+        let mut y = 30.0;
+        let mut global_index = 0;
+        for p in self.buf.text.pieces.iter() {
+            rx.draw_text(Rect::xywh(200.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
+                                                                        &self.buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
+            global_index += p.length;
+            y += 16.0;
+        }
     }
 }
 

@@ -186,6 +186,7 @@ impl<'table> PieceTable {
     }
 
     pub fn insert_range(&mut self, s: &str, index: usize) {
+        if s.len() == 0 { return; }
         let mut ix = 0usize;
         let new_piece = Piece { source: self.sources.len(), start: 0, length: s.len() };
         self.sources.push(String::from(s));
@@ -259,6 +260,7 @@ impl<'table> PieceTable {
         TableMutator { piece_ix: insertion_piece_index }
     }
 
+    /// deletes the range [start, end)
     pub fn delete_range(&mut self, start: usize, mut end: usize) {
         let mut start_piece: Option<(usize,usize)> = None;
         let mut end_piece:   Option<(usize,usize)> = None;
@@ -320,27 +322,40 @@ impl<'table> PieceTable {
         self.pieces[start_piece] = new_start;
         self.pieces[end_piece]   = new_end;
 
-        for i in mid_pieces {
-            action.push(Change::Delete { piece_index: i,  old: self.pieces.remove(i) });
+        for i in &mid_pieces {
+            action.push(Change::Delete { piece_index: *i,  old: self.pieces[*i] });
         }
+
+        self.pieces = self.pieces.iter().enumerate().filter(|(i, _)| !mid_pieces.contains(i)).map(|(_, p)| p.clone()).collect();
 
         self.history.push(action);
     }
 
-    pub fn copy_range(&mut self, start: usize, end: usize) -> String {
+    /// copies the range [start, end)
+    pub fn copy_range(&self, start: usize, end: usize) -> String {
         let mut buf = String::with_capacity(end-start);
         let mut global_index = 0usize;
         for p in self.pieces.iter() {
-            if start < global_index && end >= global_index+p.length {
+            if p.length == 0 { continue; }
+            //println!("{} {} {} {}", start, end, global_index, p.length);
+            if start <= global_index && end >= global_index+p.length {
+                // this piece is totally contained within the range
+                //println!("a");
                 buf.push_str(&self.sources[p.source][p.start..(p.start + p.length)]); 
             } else if start >= global_index && start < global_index+p.length {
-                if end > global_index && end <= global_index+p.length {
+                if end > global_index && end < global_index+p.length || start == end {
+                    // the range is totally contained within this piece
+                    //println!("b");
                     buf.push_str(&self.sources[p.source][p.start+(start-global_index)..(p.start + (end-global_index+1))]);
                     break;
                 } else {
+                    // this piece has the start of the range in it
+                    //println!("c");
                     buf.push_str(&self.sources[p.source][(p.start + start-global_index)..(p.start + p.length)]);
                 }
             } else if end >= global_index && end < global_index+p.length {
+                // this piece has the end of the range in it
+                //println!("d");
                 buf.push_str(&self.sources[p.source][p.start .. (p.start + end-global_index+1)]);
             }
             global_index += p.length;
@@ -461,6 +476,109 @@ mod tests {
     use crate::piece_table::*;
 
     #[test]
+    //#[ignore]
+    fn fuzz_api() -> Result<(), Box<dyn std::error::Error>> {
+        let mut pt = PieceTable::with_text("asdf\nasdf\nasdf\nasdf\n");
+        
+        for i in 0..1000 {
+            if pt.text().len() == 0 { println!("deleted entire text"); break; }
+            match (rand::random::<usize>()+1) % 6 {
+                0 => {
+                    let mut tx = pt.text();
+                    let x = rand::random::<usize>() % tx.len();
+                    let itxt = match rand::random::<usize>() % 4 {
+                        0 => "",
+                        1 => "\n",
+                        2 => "sequence",
+                        3 => "te st",
+                        _ => unreachable!()
+                    };
+                    println!("insert_range({}, {})", itxt.escape_debug(), x);
+                    pt.insert_range(itxt, x);
+                    tx.insert_str(x, itxt);
+                    assert_eq!(pt.text(), tx); 
+                },
+                1 => {
+                    let tx = pt.text();
+                    let s = rand::random::<usize>() % tx.len();
+                    let e = s + rand::random::<usize>() % (tx.len() - s);
+                    println!("delete_range({}, {})", s, e);
+                    pt.delete_range(s, e);
+                    assert_eq!(pt.text(), String::from(&tx[..s]) + &tx[(e+1)..]);
+                },
+                2 => {
+                    let tx = pt.text();
+                    let s = rand::random::<usize>() % tx.len();
+                    let e = s + rand::random::<usize>() % (tx.len() - s);
+                    println!("copy_range({}, {})", s, e);
+                    assert_eq!(pt.copy_range(s, e), tx[s..(e+1)]);
+                },
+                3 => {
+                    let tx = pt.text();
+                    if tx.len() == 1 { continue; }
+                    let s = (rand::random::<usize>() % (tx.len() - 1)) + 1;
+                    let ch = tx.chars().nth(s + rand::random::<usize>() % (tx.len() - s)).unwrap();
+                    println!("index_of({}, {})", ch, s);
+                    assert_eq!(pt.index_of(ch, s), tx[s..].find(ch).map(|i| i+s));
+                },
+                4 => {
+                    let tx = pt.text();
+                    let s = (rand::random::<usize>() % tx.len()) + 1;
+                    let ch = tx[..s].chars().nth(rand::random::<usize>() % s).unwrap();
+                    println!("last_index_of({}, {})", ch, s);
+                    assert_eq!(pt.last_index_of(ch, s), tx[..s].rfind(ch));
+                },
+                5 => {
+                    let tx = pt.text();
+                    let x = rand::random::<usize>() % tx.len();
+                    println!("char_at({})", x);
+                    assert_eq!(pt.char_at(x), tx.chars().nth(x));
+                },
+                6 => {
+                    let tx = pt.text();
+                    let x = rand::random::<usize>() % tx.len();
+                    println!("chars({})", x);
+                    let mut tc = tx.chars().skip(x-1);
+                    let mut ch = pt.chars(x);
+                    loop {
+                        let a = tc.next();
+                        let b = ch.next();
+                        println!("{:?} - {:?}", a, b);
+                        assert_eq!(a, b);
+                        if a.is_none() && b.is_none() { break; }
+                    }
+                }
+                x@_ => { println!("{}", x); }
+            }
+            println!("piece table text = \"{}\"", pt.text().escape_debug());
+            println!("sources [");
+            for (i, s) in pt.sources.iter().enumerate() {
+                println!("\t{} = \"{}\"", i, s.escape_debug());
+            }
+            println!("]");
+            println!("pieces {{");
+            for (i, p) in pt.pieces.iter().enumerate() {
+                println!("\t{}: source {}, start {}, len {} - \"{}\"", i, p.source, p.start, p.length,
+                         &pt.sources[p.source][p.start..p.start+p.length].escape_debug());
+            }
+            println!("}}");
+            if let Some(action) = pt.history.last() {
+                println!("last action on table {{");
+                for a in action.changes.iter() {
+                    println!("\t{:?}", a);
+                }
+                println!("}}");
+            }
+            println!("--------");
+
+        }
+
+        println!("final text = \"{}\"", pt.text().escape_debug());
+
+        Ok(())
+    }
+
+    #[test]
     fn insert_cont() {
         let mut pt = PieceTable::with_text("hello");
         let mut m = pt.insert_mutator(2);
@@ -485,7 +603,7 @@ mod tests {
     fn delete_range_single_piece() {
         let mut pt = PieceTable::with_text("hello");
         pt.delete_range(1,3);
-        assert_eq!(pt.text(), "ho");
+        assert_eq!(pt.text(), "hlo");
         println!("{:#?}", pt);
     }
  
