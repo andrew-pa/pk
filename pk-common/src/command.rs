@@ -7,7 +7,6 @@ use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Operator {
-    Repeat,
     Delete,
     Change,
     Yank,
@@ -17,15 +16,12 @@ pub enum Operator {
     ReplaceChar(char)
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ModeTag {
-    Normal, Insert, Command, Visual
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Move(Motion),
+    Repeat { count: usize },
     Undo { count: usize },
+    Redo { count: usize },
     Put {
         count: usize,
         source_register: char,
@@ -91,8 +87,9 @@ impl Command {
         }
         let opcount = take_number(&mut schars);
         let op = match schars.peek() {
-            Some('.') => Some(Operator::Repeat),
+            Some('.') => return Ok(Command::Repeat { count: opcount.unwrap_or(1) }),
             Some('u') => return Ok(Command::Undo { count: opcount.unwrap_or(1) }),
+            Some('U') => return Ok(Command::Redo { count: opcount.unwrap_or(1) }),
             Some('d') => Some(Operator::Delete),
             Some('c') => Some(Operator::Change),
             Some('y') => Some(Operator::Yank),
@@ -209,7 +206,8 @@ impl Command {
                     _ => unimplemented!()
                 }
             },
-            &Command::ChangeMode(mode) => Ok(Some(mode))
+            &Command::ChangeMode(mode) => Ok(Some(mode)),
+            _ => unimplemented!()
         }
     }
 }

@@ -1,12 +1,13 @@
 
 use runic::*;
 use pk_common::piece_table::PieceTable;
+use pk_common::mode::CursorStyle;
 
-pub enum CursorStyle {
-    Line, Block, Box, Underline
+trait CursorStyleDraw {
+    fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect);
 }
 
-impl CursorStyle {
+impl CursorStyleDraw for CursorStyle {
     fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect) {
         match self {
             CursorStyle::Line => {

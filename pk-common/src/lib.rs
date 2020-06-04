@@ -9,6 +9,7 @@ pub mod piece_table;
 use crate::piece_table::PieceTable;
 pub mod motion;
 pub mod command;
+pub mod mode;
 
 #[derive(Debug)]
 pub enum Error {
@@ -44,6 +45,11 @@ impl Error {
     pub fn from_other<E: ErrorTrait + 'static>(e: E) -> Self {
         Error::Other(Box::new(e))
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ModeTag {
+    Normal, Insert, Command, Visual
 }
 
 pub struct Buffer {

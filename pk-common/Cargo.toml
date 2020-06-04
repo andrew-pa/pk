@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+winit = "0.22"
 
 [dev-dependencies]
 rand = "0.7"
