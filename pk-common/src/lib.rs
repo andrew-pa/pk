@@ -113,22 +113,28 @@ pub mod protocol {
     use serde::{Serialize, Deserialize};
 
     #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Hash, Debug)]
-    pub struct BufferId(pub usize);
+    pub struct FileId(pub usize);
 
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Request {
-        /* buffers */
-        NewBuffer,
-        OpenBuffer { path: std::path::PathBuf },
-        SyncBuffer { id: BufferId, changes: Vec<super::piece_table::Action> },
-        ReloadBuffer(BufferId),
-        CloseBuffer(BufferId)
+        /* files */
+        NewFile,
+        OpenFile { path: std::path::PathBuf },
+        SyncFile { id: FileId, new_text: String, version: usize },
+        ReloadFile(FileId),
+        CloseFile(FileId)
     }
 
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Response {
         Ack,
         Error { message: String },
-        Buffer { id: BufferId, contents: String, next_action_id: usize },
+        VersionConflict {
+            id: FileId,
+            client_version_recieved: usize,
+            server_version: usize,
+            server_text: String
+        },
+        FileInfo { id: FileId, contents: String, version: usize },
     }
 }

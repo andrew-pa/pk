@@ -11,6 +11,8 @@ enum ServerError {
     MessageSerdeError(serde_cbor::Error),
     TransportError(nng::Error),
     IoError(std::io::Error),
+    InternalError,
+    BadFileId(protocol::FileId),
     UnknownMessage
 }
 
@@ -20,8 +22,9 @@ impl std::fmt::Display for ServerError {
             Self::MessageSerdeError(e) => write!(f, "error serializing/deserializing message: {}", e),
             Self::TransportError(e) => write!(f, "error in transport: {}", e),
             Self::IoError(e) => write!(f, "io error: {}", e),
+            Self::BadFileId(id) => write!(f, "unrecongized file id: {:?}", id),
             Self::UnknownMessage => write!(f, "unrecongized message recieved"),
-            _ => write!(f, "job error")
+            Self::InternalError => write!(f, "internal error"),
         }
     }
 }
@@ -44,59 +47,89 @@ fn make_error_message(e: ServerError) -> nng::Message {
     msg
 }
 
+use std::path::PathBuf;
+
+#[derive(Default)]
+struct File {
+    path: Option<PathBuf>,
+    contents: String,
+    current_version: usize
+}
+
+impl File {
+    fn from_path<P: AsRef<std::path::Path>>(p: P) -> Result<File, ServerError> {
+        Ok(File {
+            path: Some({ let mut pa = PathBuf::new(); pa.push(&p); pa }),
+            contents: std::fs::read_to_string(p).map_err(ServerError::IoError)?,
+            current_version: 0
+        })
+    }
+}
+
 struct Server {
-    buffers: HashMap<protocol::BufferId, Buffer>,
-    next_buffer_id: protocol::BufferId
+    open_files: HashMap<protocol::FileId, File>,
+    next_file_id: protocol::FileId
 }
 
 impl Server {
     fn new() -> Self {
         Server {
-            buffers: HashMap::new(),
-            next_buffer_id: protocol::BufferId(1)
+            open_files: HashMap::new(),
+            next_file_id: protocol::FileId(1)
         }
     }
 
     fn process_request(&mut self, msg: protocol::Request) -> Result<protocol::Response, ServerError> {
         use protocol::*;
         match msg {
-            Request::NewBuffer => {
-                let buf = Buffer::default();
-                let id = self.next_buffer_id;
-                self.next_buffer_id = protocol::BufferId(self.next_buffer_id.0 + 1);
-                let (id, contents, next_action_id) = (id, buf.text.text(), buf.text.next_action_id);
-                self.buffers.insert(id, buf);
-                Ok(Response::Buffer {
-                    id, contents, next_action_id
+            Request::NewFile => {
+                let buf = File::default();
+                let id = self.next_file_id;
+                self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
+                let (id, contents, version) = (id, buf.contents.clone(), buf.current_version);
+                self.open_files.insert(id, buf);
+                Ok(Response::FileInfo {
+                    id, contents, version
                 })
             },
-            Request::OpenBuffer { path } => {
-                let (id, contents, next_action_id) = 
-                    if let Some((id, buf)) = self.buffers.iter().find(|b| b.1.path.as_ref().map(|p| *p == path).unwrap_or(false)) {
-                        (*id, buf.text.text(), buf.text.next_action_id)
+            Request::OpenFile { path } => {
+                let (id, contents, version) = 
+                    if let Some((id, buf)) = self.open_files.iter().find(|b| b.1.path.as_ref().map(|p| *p == path).unwrap_or(false)) {
+                        (*id, buf.contents.clone(), buf.current_version)
                     }
                     else {
-                        let buf = Buffer::from_file(&path).map_err(ServerError::IoError)?;
-                        let id = self.next_buffer_id;
-                        self.next_buffer_id = protocol::BufferId(self.next_buffer_id.0 + 1);
-                        let res = (id, buf.text.text(), buf.text.next_action_id);
-                        self.buffers.insert(id, buf);
+                        let buf = File::from_path(&path)?;
+                        let id = self.next_file_id;
+                        self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
+                        let res = (id, buf.contents.clone(), buf.current_version);
+                        self.open_files.insert(id, buf);
                         res
                     };
-                Ok(Response::Buffer {
+                Ok(Response::FileInfo {
                     id,
                     contents,
-                    next_action_id
+                    version
                 })
             },
-            /*Request::SyncBuffer { id, changes } => {
-              let buf = {this.read().unwrap().buffers[&id].clone()};
-              let buf = buf.write().unwrap();
-              for change in changes {
-              buf.text.enact_change(&change);
-              }
-              Ok(Response::Ack)
-              },*/
+            Request::SyncFile { id, new_text, version } => {
+                let file = self.open_files.get_mut(&id).ok_or_else(|| ServerError::BadFileId(id))?;
+                if file.current_version >= version {
+                    Ok(Response::VersionConflict {
+                        id,
+                        client_version_recieved: version,
+                        server_version: file.current_version,
+                        server_text: file.contents.clone()
+                    })
+                } else {
+                    file.current_version = version;
+                    file.contents = new_text;
+                    Ok(Response::Ack)
+                }
+            },
+            Request::CloseFile(id) => {
+                self.open_files.remove(&id).ok_or_else(|| ServerError::BadFileId(id))?;
+                Ok(Response::Ack)
+            }
             _ => Err(ServerError::UnknownMessage)
         }
     }
@@ -118,69 +151,79 @@ impl Server {
     }
 }
 
+struct AutosaveWorker {
+    server: Arc<RwLock<Server>>
+}
+
+impl AutosaveWorker {
+    fn new(server: Arc<RwLock<Server>>) -> AutosaveWorker {
+        AutosaveWorker {
+            server
+        }
+    }
+
+    fn run(&mut self) {
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn msg_new_buffer() {
-        let mut srv = Server::new();
-        let rsp = srv.process_request(protocol::Request::NewBuffer).expect("response");
-        match rsp {
-            protocol::Response::Buffer { id, contents, next_action_id } => {
-                assert_eq!(id, protocol::BufferId(1));
-                let defp = piece_table::PieceTable::default();
-                assert_eq!(contents, defp.text());
-                assert_eq!(next_action_id, defp.next_action_id);
-            },
-            protocol::Response::Error { message } => panic!("error occurred: {}", message),
-            _ => panic!("unexpected response: {:?}", rsp)
-        }
-    }
+//     #[test]
+//     fn msg_new_buffer() {
+//         let mut srv = Server::new();
+//         let rsp = srv.process_request(protocol::Request::NewBuffer).expect("response");
+//         match rsp {
+//             protocol::Response::Buffer { id, contents, next_action_id } => {
+//                 assert_eq!(id, protocol::BufferId(1));
+//                 let defp = piece_table::PieceTable::default();
+//                 assert_eq!(contents, defp.text());
+//                 assert_eq!(next_action_id, defp.next_action_id);
+//             },
+//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
+//             _ => panic!("unexpected response: {:?}", rsp)
+//         }
+//     }
 
-    #[test]
-    fn msg_open_buffer() {
-        let mut srv = Server::new();
-        let rsp = srv.process_request(protocol::Request::OpenBuffer {
-            path: std::path::PathBuf::from("Cargo.toml")
-        }).expect("response");
-        match rsp {
-            protocol::Response::Buffer { id, contents, next_action_id } => {
-                assert_eq!(id, protocol::BufferId(1));
-                assert_eq!(contents, std::fs::read_to_string("Cargo.toml").expect("read test file"));
-                assert_eq!(next_action_id, 1);
-            },
-            protocol::Response::Error { message } => panic!("error occurred: {}", message),
-            _ => panic!("unexpected response: {:?}", rsp)
-        }
-    }
+//     #[test]
+//     fn msg_open_buffer() {
+//         let mut srv = Server::new();
+//         let rsp = srv.process_request(protocol::Request::OpenBuffer {
+//             path: std::path::PathBuf::from("Cargo.toml")
+//         }).expect("response");
+//         match rsp {
+//             protocol::Response::Buffer { id, contents, next_action_id } => {
+//                 assert_eq!(id, protocol::BufferId(1));
+//                 assert_eq!(contents, std::fs::read_to_string("Cargo.toml").expect("read test file"));
+//                 assert_eq!(next_action_id, 1);
+//             },
+//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
+//             _ => panic!("unexpected response: {:?}", rsp)
+//         }
+//     }
 
-    #[test]
-    fn msg_sync_buffer() {
-        let mut srv = Server::new();
-        let (mut pt, id) = match srv.process_request(protocol::Request::NewBuffer).expect("create buffer") {
-            protocol::Response::Buffer { id, contents, next_action_id } => {
-                (piece_table::PieceTable::with_text_and_starting_action_id(contents.as_str(), next_action_id), id)
-            },
-            protocol::Response::Error { message } => panic!("error occurred: {}", message),
-            rsp@_ => panic!("unexpected response: {:?}", rsp)
-        };
+//     #[test]
+//     fn msg_sync_buffer() {
+//         let mut srv = Server::new();
+//         let (mut pt, id) = match srv.process_request(protocol::Request::NewBuffer).expect("create buffer") {
+//             protocol::Response::Buffer { id, contents, next_action_id } => {
+//                 (piece_table::PieceTable::with_text_and_starting_action_id(contents.as_str(), next_action_id), id)
+//             },
+//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
+//             rsp@_ => panic!("unexpected response: {:?}", rsp)
+//         };
 
-        pt.insert_range("hello, world!", 0);
+//         pt.insert_range("hello, world!", 0);
 
-        let rsp = srv.process_request(protocol::Request::OpenBuffer {
-            path: std::path::PathBuf::from("Cargo.toml")
-        }).expect("response");
-        match rsp {
-            protocol::Response::Buffer { id, contents, next_action_id } => {
-                assert_eq!(id, protocol::BufferId(1));
-                assert_eq!(contents, std::fs::read_to_string("Cargo.toml").expect("read test file"));
-                assert_eq!(next_action_id, 1);
-            },
-            protocol::Response::Error { message } => panic!("error occurred: {}", message),
-            _ => panic!("unexpected response: {:?}", rsp)
-        }
-    }
+//         match srv.process_request(protocol::Request::SyncBuffer { id, changes: pt.get_changes_from(0) }).expect("sync changes") {
+//             protocol::Response::Ack => {
+//                 assert_eq!(srv.buffers[&id].text.text(), pt.text());
+//             },
+//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
+//             rsp@_ => panic!("unexpected response: {:?}", rsp)
+//         };
+//     }
 
 }
 
@@ -210,6 +253,11 @@ fn main() -> Result<(), ServerError> {
             Err(e) => println!("error starting worker thread {}", e)
         }
     }
+
+    let mut autosave_worker = AutosaveWorker::new(server.clone());
+    std::thread::spawn(move || {
+        autosave_worker.run();
+    });
 
     std::thread::park();
 
