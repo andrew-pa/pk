@@ -9,7 +9,6 @@ pub mod piece_table;
 use crate::piece_table::PieceTable;
 pub mod motion;
 pub mod command;
-pub mod mode;
 
 #[derive(Debug)]
 pub enum Error {

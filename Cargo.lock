@@ -617,7 +617,6 @@ version = "0.1.0"
 dependencies = [
  "rand",
  "serde",
- "winit",
 ]
 
 [[package]]
@@ -770,7 +769,7 @@ checksum = "7fe5bd57d1d7414c6b5ed48563a2c855d995ff777729dcd91c369ec7fea395ae"
 
 [[package]]
 name = "runic"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cairo-sys-rs",
  "cocoa 0.14.0",

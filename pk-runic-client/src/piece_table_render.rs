@@ -1,7 +1,7 @@
 
 use runic::*;
 use pk_common::piece_table::PieceTable;
-use pk_common::mode::CursorStyle;
+use crate::mode::CursorStyle;
 
 trait CursorStyleDraw {
     fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect);

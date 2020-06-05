@@ -18,7 +18,7 @@ impl Piece {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Change {
     Insert {
         piece_index: usize, new: Piece
@@ -33,7 +33,7 @@ pub enum Change {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Action {
     changes: Vec<Change>,
     id: usize
@@ -70,7 +70,7 @@ pub struct PieceTable {
 
 impl Default for PieceTable {
     fn default() -> PieceTable {
-        PieceTable::with_text("Hello, world!\n\nthis is\na test\n\nline!\n")
+        PieceTable::with_text("")
     }
 }
 
@@ -165,6 +165,18 @@ impl<'table> PieceTable {
         }
     }
 
+    pub fn apply_action(&mut self, action: &Action) {
+        if action.id < self.next_action_id { panic!("eek"); }
+        for c in action.changes.iter() {
+            self.enact_change(c);
+        }
+        self.next_action_id = action.id + 1;
+    }
+
+    pub fn get_changes_from(&self, id: usize) -> Vec<Action> {
+        self.history.iter().filter(|a| a.id >= id).cloned().collect()
+    }
+
     fn reverse_change(&mut self, change: &Change) {
         match *change {
             Change::Insert { piece_index, .. } => {
@@ -223,7 +235,7 @@ impl<'table> PieceTable {
         let mut insertion_piece_index: Option<usize> = None;
         let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
-            if index >= ix && index < ix+p.length {
+            if index >= ix && index <= ix+p.length {
                 if index == ix { // we're inserting at the start of this piece
                     let new = Piece { source: self.sources.len(), start: 0, length: 0 };
                     self.pieces.insert(i, new);
