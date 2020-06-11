@@ -131,7 +131,9 @@ impl Command {
         }
     }
 
-    pub fn execute(&self, buf: &mut Buffer, registers: &mut HashMap<char, String>) -> Result<Option<ModeTag>, Error> {
+    pub fn execute(&self, state: &mut editor_state::EditorState) -> Result<Option<ModeTag>, Error> {
+        let cbuf = state.current_buffer;
+        let buf = &mut state.buffers[cbuf];
         match self {
             Command::Move(mo) => {
                 let Range { start: _, end } = mo.range(buf);
@@ -139,11 +141,11 @@ impl Command {
                 Ok(None)
             },
             Command::Put { count, source_register, clear_register } => {
-                let src = registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
+                let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
                 buf.text.insert_range(src, buf.cursor_index);
                 buf.cursor_index += src.len();
                 if *clear_register {
-                    registers.remove(source_register);
+                    state.registers.remove(source_register);
                 }
                 Ok(None)
             },
@@ -163,7 +165,7 @@ impl Command {
                         if let MotionType::Inner(_) = mo.mo {
                             r.end += 1;
                         }
-                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
+                        state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                         buf.text.delete_range(r.start, r.end);
                         buf.cursor_index = r.start;
                         Ok(if *op == Operator::Change {
@@ -180,7 +182,7 @@ impl Command {
                         if let MotionType::Inner(_) = mo.mo {
                             r.end += 1;
                         }
-                        registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
+                        state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                         Ok(None)
                     },
                     Operator::ReplaceChar(c) => {

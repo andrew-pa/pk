@@ -1,10 +1,8 @@
 [package]
-name = "pk-runic-client"
+name = "pk-client"
 version = "0.1.0"
 authors = ["Andrew Palmer <andrew.pa@outlook.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 nng = "0.5"
@@ -14,6 +12,7 @@ regex = "1"
 lazy_static = "1"
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
+futures = { version = "0.3", features = ["thread-pool"] }
 
 [dependencies.nng-sys]
 features = ["cmake-vs2019"]

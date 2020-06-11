@@ -7,8 +7,6 @@ pub enum Direction { Forward, Backward }
 
 pub mod piece_table;
 use crate::piece_table::PieceTable;
-pub mod motion;
-pub mod command;
 
 #[derive(Debug)]
 pub enum Error {
@@ -112,16 +110,25 @@ pub mod protocol {
     use serde::{Serialize, Deserialize};
 
     #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Hash, Debug)]
-    pub struct FileId(pub usize);
+    pub struct MessageId(pub u64);
+
+    #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+    pub struct FileId(pub u64);
 
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Request {
         /* files */
-        NewFile,
+        NewFile { path: std::path::PathBuf },
         OpenFile { path: std::path::PathBuf },
         SyncFile { id: FileId, new_text: String, version: usize },
         ReloadFile(FileId),
         CloseFile(FileId)
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct MsgRequest {
+        pub msg_id: MessageId,
+        pub msg: Request
     }
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -136,4 +143,11 @@ pub mod protocol {
         },
         FileInfo { id: FileId, contents: String, version: usize },
     }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct MsgResponse {
+        pub req_id: MessageId,
+        pub msg: Response
+    }
+
 }

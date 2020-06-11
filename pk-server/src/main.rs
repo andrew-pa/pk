@@ -80,9 +80,10 @@ impl Server {
     }
 
     fn process_request(&mut self, msg: protocol::Request) -> Result<protocol::Response, ServerError> {
+        println!("request = {:?}", msg);
         use protocol::*;
         match msg {
-            Request::NewFile => {
+            Request::NewFile { path } => {
                 let buf = File::default();
                 let id = self.next_file_id;
                 self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
@@ -139,8 +140,15 @@ impl Server {
             nng::AioResult::Send(Ok(_)) => while let Err(e) = cx.recv(aio) { println!("error recieving message {}", e); },
             nng::AioResult::Recv(Ok(raw_msg)) => {
                 let resp = serde_cbor::from_slice(raw_msg.as_slice()).map_err(ServerError::MessageSerdeError)
-                    .and_then(|req| server.write().unwrap().process_request(req))
-                    .unwrap_or_else(|e| protocol::Response::Error { message: format!("{}", e) });
+                    .map(|req: protocol::MsgRequest| protocol::MsgResponse {
+                        req_id: req.msg_id,
+                        msg: server.write().unwrap()
+                                .process_request(req.msg)
+                                .unwrap_or_else(|err| protocol::Response::Error{message: format!("{}", err)})
+                    }).unwrap_or_else(|err| protocol::MsgResponse {
+                        req_id: protocol::MessageId(0),
+                        msg: protocol::Response::Error { message: format!("error decoding request {}", err) }
+                    });
                 let mut msg = nng::Message::new().expect("create message");
                 serde_cbor::to_writer(&mut msg, &resp).expect("serialize message");
                 cx.send(aio, msg).unwrap();

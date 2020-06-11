@@ -2,5 +2,5 @@
 members = [
     "pk-common",
     "pk-server",
-    "pk-runic-client"
+    "pk-client"
 ]

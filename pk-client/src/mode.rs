@@ -3,13 +3,16 @@ use std::fmt;
 use std::collections::HashMap;
 use runic::*;
 use super::*;
+use std::sync::{Arc,RwLock};
 
 pub enum CursorStyle {
     Line, Block, Box, Underline
 }
 
+pub type ModeEventResult = Result<Option<Box<dyn Mode>>, Error>;
+
 pub trait Mode : fmt::Display {
-    fn event(&mut self, e: Event, state: &mut EditorState) -> Result<Option<Box<dyn Mode>>, Error>;
+    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult;
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Block }
 }
 
@@ -30,7 +33,7 @@ impl fmt::Display for NormalMode {
 }
 
 impl Mode for NormalMode {
-    fn event(&mut self, e: Event, state: &mut EditorState) -> Result<Option<Box<dyn Mode>>, Error> {
+    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         match e {
             Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), .. }, .. } => {
                 match vk {
@@ -46,19 +49,23 @@ impl Mode for NormalMode {
                 self.pending_buf.push(c);
                 match Command::parse(&self.pending_buf) {
                     Ok(cmd) => {
-                        let res = match cmd.execute(&mut state.buffers[state.current_buffer], &mut state.registers) {
+                        let res = {
+                            match cmd.execute(&mut state.write().unwrap()) {
                             Ok(r) => r,
                             Err(e) => {
                                 self.pending_buf.clear();
                                 return Err(e);
                             }
+                        } 
                         };
                         self.pending_buf.clear();
                         match res {
                             None | Some(ModeTag::Normal) => Ok(None),
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new(state)))),
                             Some(ModeTag::Insert) => {
-                                let buf = &mut state.buffers[state.current_buffer];
+                                let mut state = state.write().unwrap();
+                                let cb = state.current_buffer;
+                                let buf = &mut state.buffers[cb];
                                 Ok(Some(Box::new(InsertMode {
                                     tmut: buf.text.insert_mutator(buf.cursor_index)
                                 }))) 
@@ -96,8 +103,10 @@ impl fmt::Display for InsertMode {
 impl Mode for InsertMode {
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Line }
 
-    fn event(&mut self, e: Event, state: &mut EditorState) -> Result<Option<Box<dyn Mode>>, Error> {
-        let buf = &mut state.buffers[state.current_buffer];
+    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
+        let mut state = state.write().unwrap();
+        let cb = state.current_buffer;
+        let buf = &mut state.buffers[cb];
         match e {
             Event::ReceivedCharacter(c) if !c.is_control() => {
                 self.tmut.push_char(&mut buf.text, c);
@@ -129,26 +138,37 @@ impl Mode for InsertMode {
 use piece_table::TableMutator;
 
 struct CommandMode {
-    cursor_mutator: TableMutator
+    cursor_mutator: TableMutator,
+    commands: Vec<(regex::Regex, Rc<dyn line_command::CommandFn>)>
 }
 
 impl CommandMode {
-    fn new(state: &mut EditorState) -> CommandMode {
+    fn new(state: PEditorState) -> CommandMode {
         let mut pt = PieceTable::default();
         let cursor_mutator = pt.insert_mutator(0);
+        let mut state = state.write().unwrap();
         assert!(state.command_line.is_none());
         state.command_line = Some((0, pt));
         CommandMode {
-            cursor_mutator
+            cursor_mutator,
+            commands: vec![
+                (regex::Regex::new("test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
+                (regex::Regex::new(r#"e\s+(?:(?Pserver_name.*):)?(?Ppath.*)"#).unwrap(), Rc::new(line_command::EditFileCommand))
+            ],
         }
     }
 }
 
 impl Mode for CommandMode {
-    fn event(&mut self, e: Event, state: &mut EditorState) 
-        -> Result<Option<Box<dyn Mode>>, Error> 
+    fn cursor_style(&self) -> CursorStyle {
+        CursorStyle::Box
+    }
+    
+    fn event(&mut self, e: Event, state: PEditorState) 
+        -> ModeEventResult
     {
-        if let Some((cursor_index, pending_command)) = state.command_line.as_mut() {
+        let mut pstate = state.write().unwrap();
+        if let Some((cursor_index, pending_command)) = pstate.command_line.as_mut() {
             match e {
                 Event::ReceivedCharacter(c) if !c.is_control() => {
                     self.cursor_mutator.push_char(pending_command, c);
@@ -173,12 +193,19 @@ impl Mode for CommandMode {
                             Ok(None)
                         },
                         VirtualKeyCode::Return => {
-                            /* execute command */
-                            state.command_line = None;
-                            Ok(Some(Box::new(NormalMode::new())))
+                            use line_command::CommandFn;
+                            let cmdstr = pstate.command_line.take().unwrap().1.text();
+                            if let Some((cmdix, args)) = self.commands.iter().enumerate()
+                                .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
+                            {
+                                let cmd = self.commands[cmdix].1.clone();
+                                cmd.process(state.clone(), &args)
+                            } else {
+                                Ok(Some(Box::new(NormalMode::new())))
+                            }
                         }
                         VirtualKeyCode::Escape => {
-                            state.command_line = None;
+                            pstate.command_line = None;
                             Ok(Some(Box::new(NormalMode::new())))
                         },
                         _ => Ok(None)
