@@ -1,5 +1,6 @@
 use super::*;
 use std::ops::Range;
+use crate::buffer::Buffer;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum CharClass {

@@ -49,63 +49,6 @@ pub enum ModeTag {
     Normal, Insert, Command, Visual
 }
 
-pub struct Buffer {
-    pub text: PieceTable,
-    pub path: Option<std::path::PathBuf>,
-    pub cursor_index: usize
-}
-
-impl Buffer {
-    pub fn with_text(s: &str) -> Buffer {
-        Buffer {
-            text: PieceTable::with_text(s),
-            path: None,
-            cursor_index: 0
-        }
-    }
-
-    pub fn from_file(path: &std::path::Path) -> Result<Buffer, std::io::Error> {
-        Ok(Buffer {
-            text: PieceTable::with_text(&std::fs::read_to_string(path)?),
-            path: Some(path.into()),
-            cursor_index: 0,
-        })
-    }
-
-    pub fn next_line_index(&self, at: usize) -> usize {
-        self.text.index_of('\n', at).map(|i| i+1)
-            .unwrap_or(0)
-    }
-
-    pub fn current_start_of_line(&self, at: usize) -> usize {
-        self.text.last_index_of('\n', at).map(|i| i+1)
-            .unwrap_or(0)
-    }
-
-    pub fn current_column(&self) -> usize {
-        self.cursor_index - self.current_start_of_line(self.cursor_index)
-    }
-
-    pub fn last_line_index(&self, at: usize) -> usize {
-        self.text.last_index_of('\n', at)
-            .and_then(|eoll| self.text.last_index_of('\n', eoll)).map(|i| i+1)
-            .unwrap_or(0)
-    }
-
-
-}
-
-impl Default for Buffer {
-    fn default() -> Buffer {
-        Buffer {
-            text: PieceTable::default(),
-            path: None,
-            cursor_index: 0
-        }
-    }
-}
-
-
 pub mod protocol {
     use serde::{Serialize, Deserialize};
 

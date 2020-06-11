@@ -133,14 +133,15 @@ impl Command {
 
     pub fn execute(&self, state: &mut editor_state::EditorState) -> Result<Option<ModeTag>, Error> {
         let cbuf = state.current_buffer;
-        let buf = &mut state.buffers[cbuf];
         match self {
             Command::Move(mo) => {
+                let buf = &mut state.buffers[cbuf];
                 let Range { start: _, end } = mo.range(buf);
                 buf.cursor_index = end;
                 Ok(None)
             },
             Command::Put { count, source_register, clear_register } => {
+                let buf = &mut state.buffers[cbuf];
                 let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
                 buf.text.insert_range(src, buf.cursor_index);
                 buf.cursor_index += src.len();
@@ -150,12 +151,14 @@ impl Command {
                 Ok(None)
             },
             Command::Undo { count } => {
+                let buf = &mut state.buffers[cbuf];
                 for _ in 0..*count {
                     buf.text.undo();
                 }
                 Ok(None)
             },
             Command::Edit { op, op_count, mo, target_register } => {
+                let buf = &mut state.buffers[cbuf];
                 match op {
                     Operator::Delete | Operator::Change => {
                         let mut r = mo.range(buf);

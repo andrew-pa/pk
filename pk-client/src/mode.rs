@@ -153,7 +153,7 @@ impl CommandMode {
             cursor_mutator,
             commands: vec![
                 (regex::Regex::new("test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
-                (regex::Regex::new(r#"e\s+(?:(?Pserver_name.*):)?(?Ppath.*)"#).unwrap(), Rc::new(line_command::EditFileCommand))
+                (regex::Regex::new(r#"e\s+(?:(?P<server_name>.*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand))
             ],
         }
     }
@@ -199,6 +199,7 @@ impl Mode for CommandMode {
                                 .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
                             {
                                 let cmd = self.commands[cmdix].1.clone();
+                                drop(pstate);
                                 cmd.process(state.clone(), &args)
                             } else {
                                 Ok(Some(Box::new(NormalMode::new())))

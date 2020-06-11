@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod buffer;
 mod motion;
 mod command;
 mod mode;
@@ -14,12 +15,9 @@ mod editor_state;
 use runic::*;
 use pk_common::*;
 use pk_common::piece_table::PieceTable;
-use command::*;
 use piece_table_render::PieceTableRenderer;
-use std::collections::HashMap;
 use mode::*;
 use std::rc::Rc;
-use server::Server;
 use futures::prelude::*;
 use std::sync::{Arc, RwLock};
 use editor_state::*;
@@ -57,6 +55,10 @@ impl runic::App for PkApp {
             self.last_err = None;
             *should_redraw = true;
         }
+        if { self.state.read().unwrap().force_redraw } {
+            *should_redraw = true;
+            self.state.write().unwrap().force_redraw = false;
+        }
         match e {
             Event::CloseRequested => *event_loop_flow = ControlFlowOpts::Exit,
             _ => {
@@ -78,18 +80,25 @@ impl runic::App for PkApp {
         }
 
         let state = self.state.read().unwrap();
-        let buf = &state.buffers[state.current_buffer];
+        if state.buffers.len() > 0 {
+            let buf = &state.buffers[state.current_buffer];
 
-        rx.set_color(Color::rgb(0.2, 0.2, 0.2));
-        rx.fill_rect(Rect::xywh(0.0, 0.0, rx.bounds().w, 20.0));
-        rx.set_color(Color::rgb(0.9, 0.65, 0.0));
-        rx.draw_text(Rect::xywh(8.0, 2.0, 1000.0, 100.0),
-            &format!("{} / col {}", self.mode, buf.current_column()), &self.fnt);
+            rx.set_color(Color::rgb(0.2, 0.2, 0.2));
+            rx.fill_rect(Rect::xywh(0.0, 0.0, rx.bounds().w, 20.0));
+            rx.set_color(Color::rgb(0.9, 0.65, 0.0));
+            rx.draw_text(Rect::xywh(8.0, 2.0, 1000.0, 100.0),
+            &format!("{} / col {} / {}:{} v{}", self.mode, buf.current_column(),
+                buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version), &self.fnt);
 
-        self.txr.cursor_index = buf.cursor_index;
-        self.txr.cursor_style = self.mode.cursor_style();
-        self.txr.paint(rx, &buf.text, Rect::xywh(8.0, 20.0, rx.bounds().w, rx.bounds().h-20.0));
-        
+            self.txr.cursor_index = buf.cursor_index;
+            self.txr.cursor_style = self.mode.cursor_style();
+            self.txr.paint(rx, &buf.text, Rect::xywh(8.0, 20.0, rx.bounds().w, rx.bounds().h-20.0));
+        } else {
+            rx.set_color(Color::rgb(0.0, 0.65, 0.9));
+            rx.draw_text(Rect::xywh(8.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 
+                         "[ open a file to start editing ]", &self.fnt);
+        }
+
         if let Some((cmd_cur_index, pending_cmd)) = state.command_line.as_ref() {
             rx.set_color(Color::rgb(0.1, 0.1, 0.1));
             rx.fill_rect(Rect::xywh(0.0, 20.0, rx.bounds().w, 20.0));

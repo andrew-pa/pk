@@ -4,6 +4,7 @@ use futures::prelude::*;
 use pk_common::*;
 use crate::server::Server;
 use pk_common::piece_table::PieceTable;
+use crate::buffer::Buffer;
 
 pub struct EditorState {
     pub buffers: Vec<Buffer>,
@@ -11,18 +12,20 @@ pub struct EditorState {
     pub registers: HashMap<char, String>,
     pub command_line: Option<(usize, PieceTable)>,
     pub thread_pool: futures::executor::ThreadPool,
-    pub servers: HashMap<String, Server>
+    pub servers: HashMap<String, Server>,
+    pub force_redraw: bool
 }
 
 impl Default for EditorState {
     fn default() -> EditorState {
         EditorState {
-            buffers: vec![Buffer::from_file(&std::path::Path::new("pk-runic-client/src/main.rs")).unwrap()],
+            buffers: Vec::new(),
             current_buffer: 0,
             registers: HashMap::new(),
             command_line: None,
             thread_pool: futures::executor::ThreadPool::new().unwrap(),
-            servers: HashMap::new() 
+            servers: HashMap::new(),
+            force_redraw: false
         }
     }
 }
