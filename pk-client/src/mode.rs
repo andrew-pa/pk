@@ -153,7 +153,8 @@ impl CommandMode {
             cursor_mutator,
             commands: vec![
                 (regex::Regex::new("test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
-                (regex::Regex::new(r#"e\s+(?:(?P<server_name>.*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand))
+                (regex::Regex::new(r#"e\s+(?:(?P<server_name>.*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand)),
+                (regex::Regex::new("sync").unwrap(), Rc::new(line_command::SyncFileCommand)),
             ],
         }
     }

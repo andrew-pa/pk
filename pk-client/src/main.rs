@@ -76,7 +76,7 @@ impl runic::App for PkApp {
 
         if let Some(e) = &self.last_err {
             rx.set_color(Color::rgb(0.9, 0.1, 0.0));
-            rx.draw_text(Rect::xywh(4.0, rx.bounds().h - 16.0, 1000.0, 1000.0), &format!("error: {}", e), &self.fnt);
+            rx.draw_text(Rect::xywh(4.0, rx.bounds().h - 16.0, 1000.0, 1000.0), &format!("error: {:?}", e), &self.fnt);
         }
 
         let state = self.state.read().unwrap();

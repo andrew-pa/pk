@@ -1,10 +1,8 @@
 
-use pk_common::*;
 use pk_common::protocol;
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
-use std::sync::mpsc::{channel,Sender};
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
 enum ServerError { 
@@ -38,13 +36,6 @@ impl std::error::Error for ServerError {
             _ => None
         }
     }
-}
-
-
-fn make_error_message(e: ServerError) -> nng::Message {
-    let mut msg = nng::Message::new().expect("create message");
-    serde_cbor::to_writer(&mut msg, &protocol::Response::Error { message: format!("{}", e) }).expect("serialize error message");
-    msg
 }
 
 use std::path::PathBuf;
