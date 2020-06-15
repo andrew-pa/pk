@@ -55,6 +55,14 @@ impl File {
             current_version: 0
         })
     }
+
+    fn write_to_disk(&self) -> Result<(), ServerError> {
+        if let Some(path) = self.path.as_ref() {
+            println!("writing {} v{} to disk", path.to_str().unwrap_or(""), self.current_version);
+            std::fs::write(path, &self.contents).map_err(ServerError::IoError)?;
+        }
+        Ok(())
+    }
 }
 
 struct Server {
@@ -144,24 +152,36 @@ impl Server {
                 serde_cbor::to_writer(&mut msg, &resp).expect("serialize message");
                 cx.send(aio, msg).unwrap();
             },
-            nng::AioResult::Recv(Err(e)) => { println!("error on recv {}", e); cx.recv(aio); },
+            nng::AioResult::Recv(Err(e)) => { println!("error on recv {}", e); cx.recv(aio).unwrap(); },
             _ => panic!()
         }
     }
 }
 
 struct AutosaveWorker {
-    server: Arc<RwLock<Server>>
+    server: Arc<RwLock<Server>>,
+    disk_versions: HashMap<protocol::FileId, usize>
 }
 
 impl AutosaveWorker {
     fn new(server: Arc<RwLock<Server>>) -> AutosaveWorker {
         AutosaveWorker {
-            server
+            server, disk_versions: HashMap::new()
         }
     }
 
     fn run(&mut self) {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let srv = self.server.read().unwrap();
+            for (file_id, file) in srv.open_files.iter() {
+                if let Some(last_disk_version) = self.disk_versions.insert(*file_id, file.current_version) {
+                    if last_disk_version < file.current_version {
+                        file.write_to_disk().unwrap();
+                    }
+                }
+            }
+        }
     }
 }
 

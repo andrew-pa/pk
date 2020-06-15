@@ -42,10 +42,17 @@ impl runic::App for PkApp {
         // and ask if they want to connect to a different URL or try to reconnect
         state.connect_to_server("local".into(), &srv_url).expect("connect to local server");
 
+        let state = Arc::new(RwLock::new(state));
+
+        let mut asw = editor_state::AutosyncWorker::new(state.clone());
+        std::thread::spawn(move || {
+            asw.run();
+        });
+
         let fnt = rx.new_font("Fira Code", 14.0, FontWeight::Regular, FontStyle::Normal).unwrap();
         let txr = PieceTableRenderer::init(rx, fnt.clone());
         PkApp {
-            fnt, txr, state: Arc::new(RwLock::new(state)),
+            fnt, txr, state,
             mode: Box::new(NormalMode::new()), last_err: None
         }
     }

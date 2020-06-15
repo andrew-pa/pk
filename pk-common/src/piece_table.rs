@@ -199,6 +199,15 @@ impl<'table> PieceTable {
         }
     }
 
+    pub fn most_recent_action_id(&self) -> usize {
+        if self.history.len() == 0 {
+            0
+        }
+        else {
+            self.history[self.history.len() - 1].id
+        }
+    }
+
     pub fn insert_range(&mut self, s: &str, index: usize) {
         if s.len() == 0 { return; }
         let mut ix = 0usize;

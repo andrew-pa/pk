@@ -41,33 +41,8 @@ pub struct SyncFileCommand;
 
 impl CommandFn for SyncFileCommand {
     fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
-        let (curbuf, server_name, id, new_text, version) = {
-            let state = es.read().unwrap();
-            let cb = state.current_buffer;
-            let b = &state.buffers[cb];
-            (cb, b.server_name.clone(), b.file_id, b.text.text(), b.version+1)
-        };
-        EditorState::make_request_async(es, server_name,
-            protocol::Request::SyncFile { id, new_text, version },
-            move |ess, resp| {
-                match resp {
-                    protocol::Response::Ack => {
-                        let mut state = ess.write().unwrap();
-                        state.buffers[curbuf].version = version;
-                    },
-                    protocol::Response::VersionConflict { id, client_version_recieved,
-                        server_version, server_text } =>
-                    {
-                        // TODO: probably need to show a nice little dialog, ask the user what they
-                        // want to do about the conflict. this becomes a tricky situation since
-                        // there's no reason to become Git, but it is nice to able to handle this
-                        // situation in a nice way
-                        todo!("version conflict!");
-                    }
-                    _ => panic!() 
-                }
-            }
-        )?;
+        let cb = { es.read().unwrap().current_buffer };
+        EditorState::sync_buffer(es, cb)?;
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
