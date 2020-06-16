@@ -28,7 +28,7 @@ impl CursorStyleDraw for CursorStyle {
 
 pub struct PieceTableRenderer {
     fnt: Font,
-    em_bounds: Rect,
+    pub em_bounds: Rect,
     pub cursor_index: usize,
     pub viewport_start: usize,
     pub cursor_style: CursorStyle

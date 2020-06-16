@@ -13,16 +13,17 @@ pub type ModeEventResult = Result<Option<Box<dyn Mode>>, Error>;
 
 pub trait Mode : fmt::Display {
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult;
+    fn mode_tag(&self) -> ModeTag;
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Block }
 }
 
 pub struct NormalMode {
-    pending_buf: String
+    pending_buf: String, ctrl_pressed: bool
 }
 
 impl NormalMode {
     pub fn new() -> NormalMode {
-        NormalMode { pending_buf: String::new() }
+        NormalMode { pending_buf: String::new(), ctrl_pressed: false }
     }
 }
 
@@ -33,17 +34,29 @@ impl fmt::Display for NormalMode {
 }
 
 impl Mode for NormalMode {
+    fn mode_tag(&self) -> ModeTag {
+        ModeTag::Normal
+    }
+
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         match e {
+            Event::ModifiersChanged(ms) => {
+                self.ctrl_pressed = ms.ctrl();
+                Ok(None)
+            }
             Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), .. }, .. } => {
                 match vk {
                     VirtualKeyCode::Escape => {
                         self.pending_buf.clear();
                         Ok(None)
                     },
+                    VirtualKeyCode::E if self.ctrl_pressed => {
+                        Ok(Some(Box::new(UserMessageInteractionMode::new(state))))
+                    }
                     _ => Ok(None) 
                 }
             },
+            
             Event::ReceivedCharacter(c) if !c.is_control() => {
                 use super::command::*;
                 self.pending_buf.push(c);
@@ -103,6 +116,10 @@ impl fmt::Display for InsertMode {
 impl Mode for InsertMode {
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Line }
 
+    fn mode_tag(&self) -> ModeTag {
+        ModeTag::Insert
+    }
+
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
         let cb = state.current_buffer;
@@ -137,13 +154,13 @@ impl Mode for InsertMode {
 
 use piece_table::TableMutator;
 
-struct CommandMode {
+pub struct CommandMode {
     cursor_mutator: TableMutator,
     commands: Vec<(regex::Regex, Rc<dyn line_command::CommandFn>)>
 }
 
 impl CommandMode {
-    fn new(state: PEditorState) -> CommandMode {
+    pub fn new(state: PEditorState) -> CommandMode {
         let mut pt = PieceTable::default();
         let cursor_mutator = pt.insert_mutator(0);
         let mut state = state.write().unwrap();
@@ -161,6 +178,10 @@ impl CommandMode {
 }
 
 impl Mode for CommandMode {
+    fn mode_tag(&self) -> ModeTag {
+        ModeTag::Command
+    }
+
     fn cursor_style(&self) -> CursorStyle {
         CursorStyle::Box
     }
@@ -203,7 +224,7 @@ impl Mode for CommandMode {
                                 drop(pstate);
                                 cmd.process(state.clone(), &args)
                             } else {
-                                Ok(Some(Box::new(NormalMode::new())))
+                                Err(Error::InvalidCommand(cmdstr))
                             }
                         }
                         VirtualKeyCode::Escape => {
@@ -224,6 +245,76 @@ impl Mode for CommandMode {
 impl fmt::Display for CommandMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "command")
+    }
+}
+
+pub struct UserMessageInteractionMode;
+
+impl UserMessageInteractionMode {
+    fn new(state: PEditorState) -> UserMessageInteractionMode {
+        let mut s = state.write().unwrap();
+        s.selected_usrmsg = s.usrmsgs.len()-1;
+        UserMessageInteractionMode
+    }
+}
+
+impl Mode for UserMessageInteractionMode {
+    fn mode_tag(&self) -> ModeTag {
+        ModeTag::UserMessage
+    }
+
+    fn cursor_style(&self) -> CursorStyle {
+        CursorStyle::Box
+    }
+
+    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
+        match e {
+            Event::ReceivedCharacter(c) if c.is_digit(10) => {
+                let sel = c.to_digit(10).unwrap() as usize;
+                if sel < 1 || sel > 9 { return Ok(None); }
+                let um: UserMessage = { let mut s = state.write().unwrap();
+                    let sm = s.selected_usrmsg; 
+                    s.selected_usrmsg = (sm + 1).min(s.usrmsgs.len().saturating_sub(1));
+                    s.usrmsgs.remove(sm)
+                };
+                if let Some((_, f)) = um.actions {
+                    f(sel, state);
+                }
+                Ok(Some(Box::new(NormalMode::new())))
+            },
+            Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
+                match vk {
+                    VirtualKeyCode::Escape => {
+                        Ok(Some(Box::new(NormalMode::new())))
+                    },
+                    VirtualKeyCode::Return | VirtualKeyCode::Back | VirtualKeyCode::Delete => {
+                        let mut s = state.write().unwrap();
+                        let sm = s.selected_usrmsg; 
+                        s.usrmsgs.remove(sm);
+                        s.selected_usrmsg = sm.saturating_sub(1);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::J => {
+                        let mut s = state.write().unwrap();
+                        s.selected_usrmsg = (s.selected_usrmsg + 1).min(s.usrmsgs.len().saturating_sub(1));
+                        Ok(None)
+                    },
+                    VirtualKeyCode::K => {
+                        let mut s = state.write().unwrap();
+                        s.selected_usrmsg = s.selected_usrmsg.saturating_sub(1);
+                        Ok(None)
+                    }
+                    _ => Ok(None)
+                }
+            }
+            _ => Ok(None)
+        }
+    }
+}
+
+impl fmt::Display for UserMessageInteractionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "message")
     }
 }
 

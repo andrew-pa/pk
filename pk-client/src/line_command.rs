@@ -10,6 +10,12 @@ pub struct TestCommand;
 impl CommandFn for TestCommand {
     fn process(&self, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
         println!("args = {:?}", args.get(1));
+        editor_state.write().unwrap().usrmsgs.push(
+            UserMessage::info("This is a test".into(),
+                              Some((vec!["option 1".into(), "looong option 2".into(), "option 3".into()],
+                              Box::new(move |index, _state| {
+                                  println!("selected {}", index);
+                              })))));
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
@@ -32,7 +38,7 @@ impl CommandFn for EditFileCommand {
                 },
                 _ => panic!() 
             }
-        })?;
+        });
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
@@ -42,7 +48,7 @@ pub struct SyncFileCommand;
 impl CommandFn for SyncFileCommand {
     fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
         let cb = { es.read().unwrap().current_buffer };
-        EditorState::sync_buffer(es, cb)?;
+        EditorState::sync_buffer(es, cb);
         Ok(Some(Box::new(NormalMode::new())))
     }
 }

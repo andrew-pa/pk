@@ -189,7 +189,7 @@ impl Command {
                         Ok(None)
                     },
                     Operator::ReplaceChar(c) => {
-                        buf.text.delete_range(buf.cursor_index, buf.cursor_index);
+                        buf.text.delete_range(buf.cursor_index, buf.cursor_index+1);
                         let mut m = buf.text.insert_mutator(buf.cursor_index);
                         m.push_char(&mut buf.text, *c);
                         Ok(None)

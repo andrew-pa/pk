@@ -46,7 +46,7 @@ impl Error {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ModeTag {
-    Normal, Insert, Command, Visual
+    Normal, Insert, Command, Visual, UserMessage
 }
 
 pub mod protocol {

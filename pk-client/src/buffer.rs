@@ -8,7 +8,8 @@ pub struct Buffer {
     pub path: PathBuf,
     pub file_id: protocol::FileId,
     pub version: usize,
-    pub cursor_index: usize
+    pub cursor_index: usize,
+    pub currently_in_conflict: bool
 }
 
 impl Buffer {
@@ -16,7 +17,8 @@ impl Buffer {
         Buffer {
             text: PieceTable::with_text(&contents),
             file_id, version,
-            cursor_index: 0, server_name, path
+            cursor_index: 0, server_name, path,
+            currently_in_conflict: false
         }
     }
 
