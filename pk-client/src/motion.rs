@@ -275,7 +275,7 @@ impl Motion {
                         Direction::Backward => buf.last_line_index(range.end)
                     };
                     // probably should unwrap to the end of the buffer
-                    let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(0)-new_line_index;
+                    let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(buf.text.len())-new_line_index;
                     range.end = buf.current_column().min(line_len)+new_line_index;
                 },
                 MotionType::StartOfLine => {
@@ -287,7 +287,7 @@ impl Motion {
                     }
                 },
                 MotionType::EndOfLine => {
-                    range.end = buf.next_line_index(range.end)-1;
+                    range.end = buf.next_line_index(range.end).saturating_sub(1);
                 }
                 MotionType::Word(Direction::Forward) => {
                     // is the character under the cursor alphanumeric+ or a 'other non-blank'?

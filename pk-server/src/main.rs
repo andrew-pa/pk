@@ -51,7 +51,11 @@ impl File {
     fn from_path<P: AsRef<std::path::Path>>(p: P) -> Result<File, ServerError> {
         Ok(File {
             path: Some({ let mut pa = PathBuf::new(); pa.push(&p); pa }),
-            contents: std::fs::read_to_string(p).map_err(ServerError::IoError)?,
+            contents: match std::fs::read_to_string(p) {
+                Ok(s) => s,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(e) => return Err(ServerError::IoError(e))
+            },
             current_version: 0
         })
     }

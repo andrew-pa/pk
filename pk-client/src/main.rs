@@ -66,32 +66,41 @@ impl Error {
 struct PkApp {
     fnt: Font,
     txr: PieceTableRenderer,
+    cmd_txr: PieceTableRenderer,
     mode: Box<dyn Mode>,
     state: PEditorState,
 }
 
 impl runic::App for PkApp {
     fn init(rx: &mut RenderContext) -> Self {
-        let (config, errmsg) = std::fs::read_to_string(".client.pk.toml").map_or_else(|e| {
+        let mut cargs = pico_args::Arguments::from_env();
+
+        let projd = directories_next::ProjectDirs::from("", "", "pk").expect("compute application directory");
+        let config_dir = cargs.opt_value_from_str("--config").unwrap()
+            .unwrap_or_else(|| std::path::Path::join(projd.config_dir(), "client.toml"));
+        let (config, errmsg) = std::fs::read_to_string(config_dir).map_or_else(|e| {
                 (Config::default(), if e.kind() != std::io::ErrorKind::NotFound { Some(UserMessage::error(
                             format!("error loading configuration file: {}", e), None)) } else { None })
             }, |v|  v.parse::<toml::Value>().map_err(Error::from_other).and_then(Config::from_toml).map_or_else(|e| {
                 (Config::default(), Some(UserMessage::error(
                             format!("error parsing configuration file: {}", e), None)))
             }, |v| (v, None)));
+
         let mut state = EditorState::with_config(config.clone());
         if let Some(em) = errmsg {
             state.process_usr_msg(em);
         }
 
         let state = Arc::new(RwLock::new(state));
-        if let Some(url) = std::env::args().nth(1) {
+        if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
             EditorState::connect_to_server(state.clone(), "cmdln".into(), &url);
         }
 
         for (name, url) in config.autoconnect_servers.iter() {
             EditorState::connect_to_server(state.clone(), name.clone(), url);
         }
+
+        cargs.finish().unwrap();
 
         let mut asw = editor_state::AutosyncWorker::new(state.clone());
         std::thread::spawn(move || {
@@ -101,9 +110,11 @@ impl runic::App for PkApp {
         let fnt = rx.new_font(&config.font.0, config.font.1,
                               FontWeight::Regular, FontStyle::Normal).unwrap();
         let txr = PieceTableRenderer::init(rx, fnt.clone());
+        let mut cmd_txr = PieceTableRenderer::init(rx, fnt.clone());
+        cmd_txr.cursor_style = CursorStyle::Line;
         PkApp {
             mode: Box::new(mode::CommandMode::new(state.clone())),
-            fnt, txr, state
+            fnt, txr, cmd_txr, state
         }
     }
 
@@ -132,9 +143,9 @@ impl runic::App for PkApp {
     }
 
     fn paint(&mut self, rx: &mut RenderContext) {
-        rx.clear(Color::black());
-
         let state = self.state.read().unwrap();
+
+        rx.clear(state.config.colors.background);
 
         /*let mut x = 0f32;
         for c in state.config.colors.accent.iter() {
@@ -185,9 +196,8 @@ impl runic::App for PkApp {
                 if buf.currently_in_conflict { "⮾" } else { "" }
                 ), &self.fnt);
 
-            self.txr.cursor_index = buf.cursor_index;
             self.txr.cursor_style = self.mode.cursor_style();
-            self.txr.paint(rx, &buf.text, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w, rx.bounds().h-20.0));
+            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+4.0, rx.bounds().w, rx.bounds().h-20.0));
         } else {
             rx.set_color(state.config.colors.accent[5]);
             rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 
@@ -198,9 +208,7 @@ impl runic::App for PkApp {
             rx.set_color(state.config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.three_quarter_gray);
-            self.txr.cursor_index = *cmd_cur_index;
-            self.txr.cursor_style = CursorStyle::Line;
-            self.txr.paint(rx, pending_cmd, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0));
+            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0));
         }
 
         /*let mut y = 30.0;

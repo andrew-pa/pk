@@ -2,6 +2,7 @@
 use runic::*;
 use pk_common::piece_table::PieceTable;
 use crate::mode::CursorStyle;
+use crate::config::Config;
 
 trait CursorStyleDraw {
     fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect);
@@ -29,7 +30,6 @@ impl CursorStyleDraw for CursorStyle {
 pub struct PieceTableRenderer {
     fnt: Font,
     pub em_bounds: Rect,
-    pub cursor_index: usize,
     pub viewport_start: usize,
     pub cursor_style: CursorStyle
 }
@@ -37,11 +37,11 @@ pub struct PieceTableRenderer {
 impl PieceTableRenderer {
     pub fn init(rx: &mut RenderContext, fnt: Font) -> Self {
         let ml = rx.new_text_layout("M", &fnt, 100.0, 100.0).expect("create em size layout");
-        PieceTableRenderer { fnt, cursor_index: 0, viewport_start: 0, em_bounds: ml.bounds(), cursor_style: CursorStyle::Underline }
+        PieceTableRenderer { fnt, viewport_start: 0, em_bounds: ml.bounds(), cursor_style: CursorStyle::Underline }
     }
 
-    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, bounds: Rect) {
-        rx.set_color(Color::white());
+    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, cursor_index: usize, config: &Config, bounds: Rect) {
+        rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
         let mut cur_pos = Point::xy(bounds.x, bounds.y); 
         let mut line_num = 0usize;
@@ -57,7 +57,7 @@ impl PieceTableRenderer {
                 if line_num < self.viewport_start {
                     if lni.peek().is_some() { line_num+=1; }
                     global_index += ln.len()+1;
-                    if self.cursor_index >= global_index && self.cursor_index <= global_index+ln.len() {
+                    if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
                         cursor_line_num = Some(line_num);
                     }
                     continue;
@@ -65,8 +65,8 @@ impl PieceTableRenderer {
                 let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
                 rx.draw_text_layout(cur_pos, &layout);
                 //rx.draw_text(Rect::pnwh(cur_pos - Point::x(12.0), 100.0, 100.0), &format!("{}", global_index), &self.fnt);
-                if self.cursor_index >= global_index && self.cursor_index <= global_index+ln.len() {
-                    let curbounds = layout.char_bounds(self.cursor_index - global_index).offset(cur_pos);
+                if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
+                    let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);
                     cursor_line_num = Some(line_num);
                     self.cursor_style.paint(rx, &curbounds, &self.em_bounds);
                 }
