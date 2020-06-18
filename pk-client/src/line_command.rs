@@ -10,7 +10,7 @@ pub struct TestCommand;
 impl CommandFn for TestCommand {
     fn process(&self, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
         println!("args = {:?}", args.get(1));
-        editor_state.write().unwrap().usrmsgs.push(
+        EditorState::process_usr_msgp(editor_state,
             UserMessage::info("This is a test".into(),
                               Some((vec!["option 1".into(), "looong option 2".into(), "option 3".into()],
                               Box::new(move |index, _state| {
@@ -52,3 +52,18 @@ impl CommandFn for SyncFileCommand {
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
+
+pub struct ConnectToServerCommand;
+
+impl CommandFn for ConnectToServerCommand {
+    fn process(&self, es: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+        println!("connect {:?}", args);
+        EditorState::connect_to_server(es,
+               args.name("server_name")
+                    .ok_or_else(|| Error::InvalidCommand("expected server name for new connection".into()))?.as_str().into(),
+               args.name("server_url")
+                    .ok_or_else(|| Error::InvalidCommand("expected server URL for new connection".into()))?.as_str().into());
+        Ok(Some(Box::new(NormalMode::new())))
+    }
+}
+

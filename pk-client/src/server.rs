@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use futures::prelude::*;
-use pk_common::{protocol, Error};
+use pk_common::protocol;
+use super::Error;
 
 struct FutureResponse {
     msg_id: protocol::MessageId,

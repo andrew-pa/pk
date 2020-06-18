@@ -75,8 +75,9 @@ impl Default for PieceTable {
 }
 
 pub struct TableMutator {
-    piece_ix: usize
+    piece_ix: usize, action: Action
 }
+
 impl TableMutator {
     pub fn push_char(&mut self, pt: &mut PieceTable, c: char) {
         pt.pieces[self.piece_ix].length += 1;
@@ -92,6 +93,10 @@ impl TableMutator {
         let si = pt.pieces[self.piece_ix].source;
         pt.sources[si].pop();
         false
+    }
+
+    pub fn finish(&self, pt: &mut PieceTable) {
+        pt.history.push(self.action.clone());
     }
 }
 
@@ -278,9 +283,8 @@ impl<'table> PieceTable {
             }
             ix += p.length;
         }
-        self.history.push(action);
         let insertion_piece_index = insertion_piece_index.unwrap();
-        TableMutator { piece_ix: insertion_piece_index }
+        TableMutator { piece_ix: insertion_piece_index, action }
     }
 
     /// deletes the range [start, end)
@@ -696,6 +700,7 @@ mod tests {
         assert_eq!(pt.text(), "heABllo");
         m.pop_char(&mut pt);
         m.push_char(&mut pt, 'C');
+        m.finish(&mut pt);
         assert_eq!(pt.text(), "heACllo");
         pt.undo();
         assert_eq!(pt.text(), "hello");

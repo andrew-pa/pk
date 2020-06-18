@@ -143,7 +143,10 @@ impl Mode for InsertMode {
                         buf.cursor_index += 1;
                         Ok(None)
                     }
-                    VirtualKeyCode::Escape => Ok(Some(Box::new(NormalMode::new()))),
+                    VirtualKeyCode::Escape => {
+                        self.tmut.finish(&mut buf.text);
+                        Ok(Some(Box::new(NormalMode::new())))
+                    },
                     _ => Ok(None)
                 }
             },
@@ -169,9 +172,10 @@ impl CommandMode {
         CommandMode {
             cursor_mutator,
             commands: vec![
-                (regex::Regex::new("test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
-                (regex::Regex::new(r#"e\s+(?:(?P<server_name>.*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand)),
-                (regex::Regex::new("sync").unwrap(), Rc::new(line_command::SyncFileCommand)),
+                (regex::Regex::new("^test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
+                (regex::Regex::new(r#"^e\s+(?:(?P<server_name>\w*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand)),
+                (regex::Regex::new("^sync").unwrap(), Rc::new(line_command::SyncFileCommand)),
+                (regex::Regex::new(r#"^con\s(?P<server_name>\w*)\s(?P<server_url>.*)"#).unwrap(), Rc::new(line_command::ConnectToServerCommand)),
             ],
         }
     }
@@ -215,11 +219,11 @@ impl Mode for CommandMode {
                             Ok(None)
                         },
                         VirtualKeyCode::Return => {
-                            use line_command::CommandFn;
                             let cmdstr = pstate.command_line.take().unwrap().1.text();
                             if let Some((cmdix, args)) = self.commands.iter().enumerate()
                                 .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
                             {
+                                println!("{:?} {:?}", cmdix, args);
                                 let cmd = self.commands[cmdix].1.clone();
                                 drop(pstate);
                                 cmd.process(state.clone(), &args)
@@ -289,10 +293,17 @@ impl Mode for UserMessageInteractionMode {
                     },
                     VirtualKeyCode::Return | VirtualKeyCode::Back | VirtualKeyCode::Delete => {
                         let mut s = state.write().unwrap();
+                        if s.usrmsgs.len() == 0 {
+                            return Ok(Some(Box::new(NormalMode::new())));
+                        }
                         let sm = s.selected_usrmsg; 
                         s.usrmsgs.remove(sm);
                         s.selected_usrmsg = sm.saturating_sub(1);
-                        Ok(None)
+                        if s.usrmsgs.len() == 0 {
+                            Ok(Some(Box::new(NormalMode::new())))
+                        } else {
+                            Ok(None)
+                        }
                     },
                     VirtualKeyCode::J => {
                         let mut s = state.write().unwrap();

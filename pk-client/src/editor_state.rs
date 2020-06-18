@@ -5,6 +5,8 @@ use pk_common::*;
 use crate::server::Server;
 use pk_common::piece_table::PieceTable;
 use crate::buffer::Buffer;
+use crate::config::Config;
+use super::Error;
 
 pub enum UserMessageType {
     Error, Warning, Info
@@ -56,11 +58,20 @@ pub struct EditorState {
     pub servers: HashMap<String, Server>,
     pub force_redraw: bool,
     pub usrmsgs: Vec<UserMessage>,
-    pub selected_usrmsg: usize
+    pub selected_usrmsg: usize,
+    pub config: Config
 }
 
 impl Default for EditorState {
     fn default() -> EditorState {
+        EditorState::with_config(Config::default())
+    }
+}
+
+pub type PEditorState = Arc<RwLock<EditorState>>;
+
+impl EditorState {
+    pub fn with_config(config: Config) -> EditorState {
         EditorState {
             buffers: Vec::new(),
             current_buffer: 0,
@@ -70,28 +81,34 @@ impl Default for EditorState {
             servers: HashMap::new(),
             force_redraw: false,
             usrmsgs: Vec::new(),
-            selected_usrmsg: 0
+            selected_usrmsg: 0,
+            config
         }
     }
-}
 
-pub type PEditorState = Arc<RwLock<EditorState>>;
-
-impl EditorState {
     pub fn connect_to_server(state: PEditorState, name: String, url: &str) {
-        match Server::init(url) {
-            Ok(s) => { state.write().unwrap().servers.insert(name, s); }
-            Err(e) => {
-                let url = url.to_owned();
-                state.write().unwrap().usrmsgs.push(
-                    UserMessage::error(
-                        format!("Connecting to {} ({}) failed (reason: {}), retry?", name, url, e),
-                        Some((vec!["Retry".into()], Box::new(move |index, sstate| {
-                            EditorState::connect_to_server(sstate, name.clone(), &url);
-                        })))
-                    ));
+        let tp = {state.read().unwrap().thread_pool.clone()};
+        let url = url.to_owned();
+        tp.spawn_ok(async move {
+            match Server::init(&url) {
+                Ok(s) => {
+                    let mut state = state.write().unwrap();
+                    state.servers.insert(name.clone(), s);
+                    EditorState::process_usr_msg(&mut state, UserMessage::info(
+                            format!("Connected to {} ({})!", name, url),
+                            None));
+                }
+                Err(e) => {
+                    EditorState::process_usr_msgp(state,
+                        UserMessage::error(
+                            format!("Connecting to {} ({}) failed (reason: {}), retry?", name, url, e),
+                                Some((vec!["Retry".into()], Box::new(move |_, sstate| {
+                                    EditorState::connect_to_server(sstate, name.clone(), &url);
+                                })))
+                            ));
+                }
             }
-        }
+        });
     }
 
     pub fn make_request_async<F>(state: PEditorState, server_name: String, request: protocol::Request, f: F)
@@ -188,10 +205,18 @@ impl EditorState {
             }
         );
     }
-    
-    pub fn process_error_str(&mut self, e: String) {
-        self.usrmsgs.push(UserMessage::error(e, None));
+
+    pub fn process_usr_msg(&mut self, um: UserMessage) {
+        self.usrmsgs.push(um);
         self.force_redraw = true;
+    }
+    
+    pub fn process_usr_msgp(state: PEditorState, um: UserMessage) {
+        state.write().unwrap().process_usr_msg(um);
+    }
+
+    pub fn process_error_str(&mut self, e: String) {
+        self.process_usr_msg(UserMessage::error(e, None));
     }
     pub fn process_error<E: std::error::Error>(&mut self, e: E) {
         self.process_error_str(format!("{}", e));

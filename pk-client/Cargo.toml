@@ -13,6 +13,7 @@ lazy_static = "1"
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 futures = { version = "0.3", features = ["thread-pool"] }
+toml = "0.5"
 
 [dependencies.nng-sys]
 features = ["cmake-vs2019"]

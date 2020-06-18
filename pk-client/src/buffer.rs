@@ -13,6 +13,15 @@ pub struct Buffer {
 }
 
 impl Buffer {
+    pub fn with_text(s: &str) -> Buffer {
+        Buffer {
+            text: PieceTable::with_text(s),
+            version: 0, file_id: protocol::FileId(0),
+            cursor_index: 0, server_name: "".into(),
+            path: "".into(), currently_in_conflict: false
+        }
+    }
+
     pub fn from_server(server_name: String, path: PathBuf, file_id: protocol::FileId, contents: String, version: usize) -> Buffer {
         Buffer {
             text: PieceTable::with_text(&contents),
