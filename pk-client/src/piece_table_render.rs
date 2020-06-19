@@ -40,15 +40,24 @@ impl PieceTableRenderer {
         PieceTableRenderer { fnt, viewport_start: 0, em_bounds: ml.bounds(), cursor_style: CursorStyle::Underline }
     }
 
+    fn viewport_end(&self, bounds: &Rect) -> usize {
+        self.viewport_start + ((bounds.h / self.em_bounds.h).floor() as usize).saturating_sub(2)
+    }
+
+    pub fn ensure_line_visible(&mut self, line: usize, bounds: Rect) {
+        let viewport_end = self.viewport_end(&bounds);
+        if self.viewport_start >= line { self.viewport_start = line.saturating_sub(1); }
+        if viewport_end <= line { self.viewport_start += line - viewport_end; }
+    }
+
     pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, cursor_index: usize, config: &Config, bounds: Rect) {
         rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
         let mut cur_pos = Point::xy(bounds.x, bounds.y); 
         let mut line_num = 0usize;
-        let mut cursor_line_num = None;
-        for (i,p) in table.pieces.iter().enumerate() {
+        let viewport_end = self.viewport_end(&bounds);
+        for p in table.pieces.iter() {
             let src = &table.sources[p.source][p.start..(p.start+p.length)];
-            //rx.draw_text(Rect::xywh(100.0,100.0+i as f32*30.0,1000.0,1000.0), &format!("{:?}", src.split('\n').collect::<Vec<_>>()), &self.fnt);
             let mut lni = src.split('\n').peekable(); 
             loop {
                 let ln = lni.next();
@@ -57,17 +66,12 @@ impl PieceTableRenderer {
                 if line_num < self.viewport_start {
                     if lni.peek().is_some() { line_num+=1; }
                     global_index += ln.len()+1;
-                    if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
-                        cursor_line_num = Some(line_num);
-                    }
                     continue;
                 }
                 let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
                 rx.draw_text_layout(cur_pos, &layout);
-                //rx.draw_text(Rect::pnwh(cur_pos - Point::x(12.0), 100.0, 100.0), &format!("{}", global_index), &self.fnt);
                 if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
                     let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);
-                    cursor_line_num = Some(line_num);
                     self.cursor_style.paint(rx, &curbounds, &self.em_bounds);
                 }
                 let text_size = layout.bounds();
@@ -79,15 +83,12 @@ impl PieceTableRenderer {
                     cur_pos.x = bounds.x;
                     cur_pos.y += text_size.h.min(self.em_bounds.h);
                     global_index += 1;
-                    if cur_pos.y > bounds.h { break; }
+                    if line_num > viewport_end { break; }
+                    //if cur_pos.y + text_size.h > bounds.h { break; }
                 } else {
                     break;
                 }
             }
         }
-        // make sure the cursor is visable, if not scroll the viewport
-        let cursor_line_num = cursor_line_num.unwrap_or(line_num + 1);
-        if cursor_line_num < self.viewport_start { self.viewport_start -= 1; }
-        if cursor_line_num > line_num { self.viewport_start += 1; }
     }
 }

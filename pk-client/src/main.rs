@@ -154,7 +154,7 @@ impl runic::App for PkApp {
             x += 64.0;
         }*/
 
-        if state.usrmsgs.len() > 0 {
+        let usrmsg_y = if state.usrmsgs.len() > 0 {
             let x = 8f32; let mut y = rx.bounds().h-8f32; 
             for (i, um) in state.usrmsgs.iter().enumerate().rev() {
                 rx.set_color(match um.mtype {
@@ -178,26 +178,34 @@ impl runic::App for PkApp {
                 }
                 rx.draw_text_layout(Point::xy(x, y), &msg_tf);
                 if self.mode.mode_tag() == ModeTag::UserMessage && state.selected_usrmsg == i {
-                    rx.stroke_rect(Rect::xywh(x-2f32, y, rx.bounds().w-12f32, sy-y), 2.0);
+                    rx.stroke_rect(Rect::xywh(x-2f32, y-1.0, rx.bounds().w-12f32, sy-y + 1.0), 2.0);
                 }
             }
-        }
+            rx.fill_rect(Rect::xywh(0.0, y - 8.0, rx.bounds().w, 1.0));
+            y 
+        } else { rx.bounds().h } - 8.0;
+
 
         if state.buffers.len() > 0 {
             let buf = &state.buffers[state.current_buffer];
+
+            let editor_bounds = Rect::xywh(8.0, self.txr.em_bounds.h+4.0, rx.bounds().w, usrmsg_y);
+
+            let curln = buf.line_for_index(buf.cursor_index);
 
             // draw status line
             rx.set_color(state.config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, 0.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.accent[1]);
             rx.draw_text(Rect::xywh(8.0, 2.0, rx.bounds().w, 1000.0),
-                &format!("{} / col {} / {}:{} v{}{}", self.mode, buf.current_column(),
+                &format!("{} / ln {} col {} / {}:{} v{}{}", self.mode, curln, buf.current_column(),
                 buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
                 if buf.currently_in_conflict { "⮾" } else { "" }
                 ), &self.fnt);
 
             self.txr.cursor_style = self.mode.cursor_style();
-            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+4.0, rx.bounds().w, rx.bounds().h-20.0));
+            self.txr.ensure_line_visible(curln, editor_bounds);
+            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds);
         } else {
             rx.set_color(state.config.colors.accent[5]);
             rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 

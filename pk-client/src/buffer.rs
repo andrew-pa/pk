@@ -45,13 +45,26 @@ impl Buffer {
         self.cursor_index - self.current_start_of_line(self.cursor_index)
     }
 
+    pub fn line_for_index(&self, index: usize) -> usize {
+        let mut ln = 0;
+        let mut ix = 0;
+        loop {
+           if let Some(nix) = self.text.index_of('\n', ix) {
+               if index >= ix && index <= nix { return ln; }
+               ln += 1;
+               ix = nix+1;
+           } else {
+               break;
+           }
+        }
+        ln
+    }
+
     pub fn last_line_index(&self, at: usize) -> usize {
         self.text.last_index_of('\n', at)
             .and_then(|eoll| self.text.last_index_of('\n', eoll)).map(|i| i+1)
             .unwrap_or(0)
     }
-
-
 }
 
 
