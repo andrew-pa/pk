@@ -33,7 +33,7 @@ impl Buffer {
 
     pub fn next_line_index(&self, at: usize) -> usize {
         self.text.index_of('\n', at).map(|i| i+1)
-            .unwrap_or(0)
+            .unwrap_or(self.text.len())
     }
 
     pub fn current_start_of_line(&self, at: usize) -> usize {

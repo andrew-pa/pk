@@ -3,13 +3,13 @@ use std::ops::Range;
 use crate::buffer::Buffer;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum CharClass {
+pub enum CharClass {
     Whitespace,
     Punctuation,
     Regular
 }
 
-trait CharClassify {
+pub trait CharClassify {
     fn class(self) -> CharClass;
 }
 
@@ -74,8 +74,8 @@ impl TextObject {
                     }
                     if i > 0 || include {
                         let class = if starting_class == CharClass::Whitespace {
-                                        *chars.peek().unwrap()
-                                    } else { CharClass::Whitespace };
+                            *chars.peek().unwrap()
+                        } else { CharClass::Whitespace };
                         while chars.peek().map(|cc| *cc == class).unwrap_or(false) {
                             range.end += 1;
                             chars.next();
@@ -120,9 +120,9 @@ impl TextObject {
                     println!("{:?}",chars.next());
                 }
                 /*while chars.peek().map(|cc| *cc != mc).unwrap_or(false) {
-                    chars.next();
-                    range.end += 1;
-                }*/
+                  chars.next();
+                  range.end += 1;
+                  }*/
                 if !include { range.end -= 1; }
 
                 range
@@ -176,99 +176,99 @@ pub fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<
 
 impl Motion {
     pub fn parse(c: &mut std::iter::Peekable<std::str::Chars>, opchar: Option<char>, wholecmd: &str) -> Result<Motion, Error> {
-       let count = take_number(c);
-       let txo = match c.peek() {
-           Some('h') => MotionType::Char(Direction::Backward),
-           Some('j') => MotionType::Line(Direction::Forward),
-           Some('k') => MotionType::Line(Direction::Backward),
-           Some('l') => MotionType::Char(Direction::Forward),
-           Some('w') => MotionType::Word(Direction::Forward),
-           Some('b') => MotionType::Word(Direction::Backward),
-           Some('W') => MotionType::BigWord(Direction::Forward),
-           Some('B') => MotionType::BigWord(Direction::Backward),
-           Some('e') => MotionType::EndOfWord(Direction::Forward),
-           Some('E') => MotionType::EndOfBigWord(Direction::Forward),
-           Some('g') => {
-               c.next();
-               match c.peek() {
-                   Some('e') => MotionType::EndOfWord(Direction::Backward),
-                   Some('E') => MotionType::EndOfBigWord(Direction::Backward),
-                   Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
-                   None => return Err(Error::IncompleteCommand)
-               }
-           },
-           Some('^') => MotionType::StartOfLine,
-           Some('$') => MotionType::EndOfLine,
-           Some('_') => MotionType::WholeLine,
-           Some(&tc) if tc == 'f' || tc == 'F' || tc == 't' || tc == 'T' => {
-               c.next();
-               MotionType::NextChar {
-                   c: c.next().ok_or(Error::IncompleteCommand)?,
-                   place_before: match tc {
-                       'f' => false,
-                       'F' => false,
-                       't' => true,
-                       'T' => true,
-                       _ => unreachable!()
-                   },
-                   direction: match tc {
-                       'f' => Direction::Forward,
-                       'F' => Direction::Backward,
-                       't' => Direction::Forward,
-                       'T' => Direction::Backward,
-                       _ => unreachable!()
-                   }
-               }
-           },
-           Some('i') | Some('a') if opchar.is_some() => {
-               let t = c.next();
-               let obj = match c.peek() {
-                   Some('w') => TextObject::Word,
-                   Some('W') => TextObject::BigWord,
-                   Some('p') => TextObject::Paragraph,
-                   Some('{') | Some('}') => TextObject::Block('{'),
-                   Some('(') | Some(')') => TextObject::Block('('),
-                   Some('[') | Some(']') => TextObject::Block('['),
-                   Some('<') | Some('>') => TextObject::Block('<'),
-                   Some('"')  => TextObject::Block('"'),
-                   Some('\'') => TextObject::Block('\''),
-                   Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
-                   None => return Err(Error::IncompleteCommand)
-               };
-               match t {
-                   Some('i') => MotionType::Inner(obj),
-                   Some('a') => MotionType::An(obj),
-                   _ => unreachable!()
-               }
-           },
-           Some(';') => MotionType::RepeatNextChar { opposite: true },
-           Some(c) if opchar.map(|opc| opc == *c).unwrap_or(false)
-               => MotionType::WholeLine,
-           Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
-           None => return Err(Error::IncompleteCommand)
-       };
-       c.next();
-       Ok(Motion {
-           count: count.unwrap_or(1),
-           mo: txo,
-       })
+        let count = take_number(c);
+        let txo = match c.peek() {
+            Some('h') => MotionType::Char(Direction::Backward),
+            Some('j') => MotionType::Line(Direction::Forward),
+            Some('k') => MotionType::Line(Direction::Backward),
+            Some('l') => MotionType::Char(Direction::Forward),
+            Some('w') => MotionType::Word(Direction::Forward),
+            Some('b') => MotionType::Word(Direction::Backward),
+            Some('W') => MotionType::BigWord(Direction::Forward),
+            Some('B') => MotionType::BigWord(Direction::Backward),
+            Some('e') => MotionType::EndOfWord(Direction::Forward),
+            Some('E') => MotionType::EndOfBigWord(Direction::Forward),
+            Some('g') => {
+                c.next();
+                match c.peek() {
+                    Some('e') => MotionType::EndOfWord(Direction::Backward),
+                    Some('E') => MotionType::EndOfBigWord(Direction::Backward),
+                    Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
+                    None => return Err(Error::IncompleteCommand)
+                }
+            },
+            Some('^') => MotionType::StartOfLine,
+            Some('$') => MotionType::EndOfLine,
+            Some('_') => MotionType::WholeLine,
+            Some(&tc) if tc == 'f' || tc == 'F' || tc == 't' || tc == 'T' => {
+                c.next();
+                MotionType::NextChar {
+                    c: c.next().ok_or(Error::IncompleteCommand)?,
+                    place_before: match tc {
+                        'f' => false,
+                        'F' => false,
+                        't' => true,
+                        'T' => true,
+                        _ => unreachable!()
+                    },
+                    direction: match tc {
+                        'f' => Direction::Forward,
+                        'F' => Direction::Backward,
+                        't' => Direction::Forward,
+                        'T' => Direction::Backward,
+                        _ => unreachable!()
+                    }
+                }
+            },
+            Some('i') | Some('a') if opchar.is_some() => {
+                let t = c.next();
+                let obj = match c.peek() {
+                    Some('w') => TextObject::Word,
+                    Some('W') => TextObject::BigWord,
+                    Some('p') => TextObject::Paragraph,
+                    Some('{') | Some('}') => TextObject::Block('{'),
+                    Some('(') | Some(')') => TextObject::Block('('),
+                    Some('[') | Some(']') => TextObject::Block('['),
+                    Some('<') | Some('>') => TextObject::Block('<'),
+                    Some('"')  => TextObject::Block('"'),
+                    Some('\'') => TextObject::Block('\''),
+                    Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
+                    None => return Err(Error::IncompleteCommand)
+                };
+                match t {
+                    Some('i') => MotionType::Inner(obj),
+                    Some('a') => MotionType::An(obj),
+                    _ => unreachable!()
+                }
+            },
+            Some(';') => MotionType::RepeatNextChar { opposite: true },
+            Some(c) if opchar.map(|opc| opc == *c).unwrap_or(false)
+                => MotionType::WholeLine,
+            Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
+            None => return Err(Error::IncompleteCommand)
+        };
+        c.next();
+        Ok(Motion {
+            count: count.unwrap_or(1),
+            mo: txo,
+        })
     }
 
-    pub fn range(&self, buf: &Buffer) -> Range<usize> {
+    pub fn range(&self, buf: &Buffer, multiplier: usize) -> Range<usize> {
         let mut range = buf.cursor_index..buf.cursor_index;
         match &self.mo {
             MotionType::An(obj) => {
-                return obj.range(buf, self.count, true);
+                return obj.range(buf, self.count * multiplier, true);
             },
             MotionType::Inner(obj) => {
-                return obj.range(buf, self.count, false);
+                return obj.range(buf, self.count * multiplier, false);
             },
             _ => {}
         };
-        for _ in 0..self.count {
+        for _ in 0..(self.count * multiplier) {
             match &self.mo {
-                MotionType::Char(Direction::Forward) => { range.end += 1 }
-                MotionType::Char(Direction::Backward) => { range.end -= 1 }
+                MotionType::Char(Direction::Forward) => { range.end = (range.end+1).min(buf.text.len()); }
+                MotionType::Char(Direction::Backward) => { range.end = range.end.saturating_sub(1); }
                 MotionType::Line(direction) => {
                     let new_line_index = match direction {
                         Direction::Forward => buf.next_line_index(range.end),
@@ -305,7 +305,7 @@ impl Motion {
                     } else { // "a sequence of other non-blank characters"
                         // find the next blank or alphanumeric+ char
                         let f = buf.text.index_of_pred(|sc| sc.is_ascii_whitespace() || sc.is_alphanumeric() || sc == '_',
-                            range.end+1).unwrap_or(range.end);
+                        range.end+1).unwrap_or(range.end);
                         // the next word starts at `f` or if `f` is whitespace, at the next
                         // non-blank char after `f`
                         range.end = if buf.text.char_at(f).map(|c| c.is_ascii_whitespace()).unwrap_or(false) {
@@ -337,7 +337,7 @@ impl Motion {
 
                 MotionType::BigWord(direction) => {
                     let next_blank = buf.text.dir_index_of(|sc| sc.is_ascii_whitespace(), range.start, *direction)
-                                                .unwrap_or(range.start);
+                        .unwrap_or(range.start);
                     range.end = match *direction {
                         Direction::Forward =>
                             buf.text.index_of_pred(|sc| !sc.is_ascii_whitespace(), next_blank).unwrap_or(next_blank),
@@ -348,7 +348,7 @@ impl Motion {
 
                 MotionType::EndOfWord(Direction::Forward) | MotionType::EndOfBigWord(Direction::Forward) => {
                     let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end)
-                        .map(CharClassify::class));
+                                                                                .map(CharClassify::class));
                     if let MotionType::EndOfBigWord(_) = self.mo {
                         chars = Box::new(chars.map(|c| match c { 
                             CharClass::Punctuation => CharClass::Regular,
@@ -360,22 +360,22 @@ impl Motion {
                         range.end += 1;
                         if starting_class != CharClass::Whitespace &&
                             chars.peek().map(|cc| *cc == starting_class).unwrap_or(false)
-                        {
-                            while chars.next().map_or(false, |cc| cc == starting_class) {
-                                range.end += 1;
-                            }
-                        } else {
-                            while let Some(CharClass::Whitespace) = chars.peek() {
-                                chars.next();
-                                range.end += 1;
-                            }
-                            let scls = chars.peek().cloned().unwrap();
-                            while range.end < buf.text.len() &&
-                                    chars.next().map_or(false, |x| x == scls)
                             {
-                                range.end += 1;
+                                while chars.next().map_or(false, |cc| cc == starting_class) {
+                                    range.end += 1;
+                                }
+                            } else {
+                                while let Some(CharClass::Whitespace) = chars.peek() {
+                                    chars.next();
+                                    range.end += 1;
+                                }
+                                let scls = chars.peek().cloned().unwrap();
+                                while range.end < buf.text.len() &&
+                                    chars.next().map_or(false, |x| x == scls)
+                                    {
+                                        range.end += 1;
+                                    }
                             }
-                        }
                         range.end -= 1;
                     } else {
                         range.end = 0;
@@ -385,7 +385,7 @@ impl Motion {
                 // of course, the most arcane is the simplest
                 MotionType::EndOfWord(Direction::Backward) | MotionType::EndOfBigWord(Direction::Backward) => {
                     let mut chars: Box<dyn Iterator<Item=CharClass>> = Box::new(buf.text.chars(range.end).rev()
-                        .map(CharClassify::class));
+                                                                                .map(CharClassify::class));
                     if let MotionType::EndOfBigWord(_) = self.mo {
                         chars = Box::new(chars.map(|c| match c { 
                             CharClass::Punctuation => CharClass::Regular,
@@ -457,7 +457,7 @@ mod tests {
             mo: MotionType::Char(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b), 4..5);
+        assert_eq!(mo.range(&b, 1), 4..5);
     }
 
     #[test]
@@ -468,9 +468,9 @@ mod tests {
             mo: MotionType::Line(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b), 4..8);
+        assert_eq!(mo.range(&b, 1), 4..8);
     }
- 
+
     #[test]
     fn txo_start_of_line() {
         let b = create_line_test_buffer();
@@ -478,9 +478,9 @@ mod tests {
             mo: MotionType::StartOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b), 4..4);
+        assert_eq!(mo.range(&b, 1), 4..4);
     }      
- 
+
     #[test]
     fn txo_end_of_line() {
         let b = create_line_test_buffer();
@@ -488,7 +488,7 @@ mod tests {
             mo: MotionType::EndOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b), 4..7);
+        assert_eq!(mo.range(&b, 1), 4..7);
     }      
 
     #[test]
@@ -498,22 +498,22 @@ mod tests {
             mo: MotionType::Line(Direction::Backward),
             count: 1
         };
-        assert_eq!(mo.range(&b), 4..0);
+        assert_eq!(mo.range(&b, 1), 4..0);
     }
 
     fn run_repeated_test<'a>(b: &mut Buffer, mo: &Motion, 
-                        correct_ends: impl Iterator<Item=&'a usize>, assert_msg: &str) {
+                             correct_ends: impl Iterator<Item=&'a usize>, assert_msg: &str) {
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b);
+            let r = mo.range(&b, 1);
             assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
             b.cursor_index = r.end;
         }
     }
 
     fn run_repeated_test_then_offset<'a>(b: &mut Buffer, mo: &Motion, 
-                        correct_ends: impl Iterator<Item=&'a usize>, offset: isize, assert_msg: &str) {
+                                         correct_ends: impl Iterator<Item=&'a usize>, offset: isize, assert_msg: &str) {
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b);
+            let r = mo.range(&b, 1);
             assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
             b.cursor_index = (r.end as isize + offset) as usize;
         }
@@ -532,7 +532,7 @@ mod tests {
             count: 1
         };
         run_repeated_test(&mut b, &mo, [11,7,4,0].iter(), "backward");
-    
+
     }
 
     #[test]
@@ -647,15 +647,15 @@ mod tests {
         let mut mo = Motion {
             mo: MotionType::An(TextObject::Word), count: 1
         };
-        assert_eq!(mo.range(&b), 1..7);
+        assert_eq!(mo.range(&b, 1), 1..7);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..12);
+        assert_eq!(mo.range(&b, 1), 1..12);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..14);
+        assert_eq!(mo.range(&b, 1), 1..14);
 
         b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b), 5..11);
+        assert_eq!(mo.range(&b, 1), 5..11);
     }
 
     #[test]
@@ -665,15 +665,15 @@ mod tests {
         let mut mo = Motion {
             mo: MotionType::Inner(TextObject::Word), count: 1
         };
-        assert_eq!(mo.range(&b), 1..4);
+        assert_eq!(mo.range(&b, 1), 1..4);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..6);
+        assert_eq!(mo.range(&b, 1), 1..6);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..10);
+        assert_eq!(mo.range(&b, 1), 1..10);
 
         b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b), 5..6);
+        assert_eq!(mo.range(&b, 1), 5..6);
     }
 
     #[test]
@@ -683,15 +683,15 @@ mod tests {
         let mut mo = Motion {
             mo: MotionType::An(TextObject::BigWord), count: 1
         };
-        assert_eq!(mo.range(&b), 1..7);
+        assert_eq!(mo.range(&b, 1), 1..7);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..12);
+        assert_eq!(mo.range(&b, 1), 1..12);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..16);
+        assert_eq!(mo.range(&b, 1), 1..16);
 
         b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b), 5..11);
+        assert_eq!(mo.range(&b, 1), 5..11);
     }
 
     #[test]
@@ -701,15 +701,15 @@ mod tests {
         let mut mo = Motion {
             mo: MotionType::Inner(TextObject::BigWord), count: 1
         };
-        assert_eq!(mo.range(&b), 1..4);
+        assert_eq!(mo.range(&b, 1), 1..4);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..6);
+        assert_eq!(mo.range(&b, 1), 1..6);
         mo.count += 1;
-        assert_eq!(mo.range(&b), 1..12); // this doesn't quite agree with Vim, but it seems questionable either way
+        assert_eq!(mo.range(&b, 1), 1..12); // this doesn't quite agree with Vim, but it seems questionable either way
 
         b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b), 5..6);
+        assert_eq!(mo.range(&b, 1), 5..6);
     }
 
     #[test]
@@ -719,22 +719,22 @@ mod tests {
             mo: MotionType::An(TextObject::Block('<')), count: 1
         };
 
-        assert_eq!(mo.range(&b), 0..20, "on <");
+        assert_eq!(mo.range(&b, 1), 0..20, "on <");
         b.cursor_index += 3;
-        assert_eq!(mo.range(&b), 0..20, "in <");
+        assert_eq!(mo.range(&b, 1), 0..20, "in <");
 
         b.cursor_index = 1;
         mo.mo = MotionType::An(TextObject::Block('('));
-        assert_eq!(mo.range(&b), 1..9, "on first (");
+        assert_eq!(mo.range(&b, 1), 1..9, "on first (");
         b.cursor_index += 2;
-        assert_eq!(mo.range(&b), 1..9, "in first (");
+        assert_eq!(mo.range(&b, 1), 1..9, "in first (");
 
         b.cursor_index += 2;
-        assert_eq!(mo.range(&b), 4..6, "in nested (");
+        assert_eq!(mo.range(&b, 1), 4..6, "in nested (");
 
         b.cursor_index = 15;
         mo.mo = MotionType::An(TextObject::Block('{'));
-        assert_eq!(mo.range(&b), 11..19, "in {{");
+        assert_eq!(mo.range(&b, 1), 11..19, "in {{");
     }
 
     #[test]
@@ -744,22 +744,22 @@ mod tests {
             mo: MotionType::Inner(TextObject::Block('<')), count: 1
         };
 
-        assert_eq!(mo.range(&b), 1..19, "on <");
+        assert_eq!(mo.range(&b, 1), 1..19, "on <");
         b.cursor_index += 3;
-        assert_eq!(mo.range(&b), 1..19, "in <");
+        assert_eq!(mo.range(&b, 1), 1..19, "in <");
 
         b.cursor_index = 1;
         mo.mo = MotionType::Inner(TextObject::Block('('));
-        assert_eq!(mo.range(&b), 2..8, "on first (");
+        assert_eq!(mo.range(&b, 1), 2..8, "on first (");
         b.cursor_index += 2;
-        assert_eq!(mo.range(&b), 2..8, "in first (");
+        assert_eq!(mo.range(&b, 1), 2..8, "in first (");
 
         b.cursor_index += 2;
-        assert_eq!(mo.range(&b), 5..5, "in nested (");
+        assert_eq!(mo.range(&b, 1), 5..5, "in nested (");
 
         b.cursor_index = 15;
         mo.mo = MotionType::Inner(TextObject::Block('{'));
-        assert_eq!(mo.range(&b), 12..18, "in {{");
+        assert_eq!(mo.range(&b, 1), 12..18, "in {{");
     }
 
 

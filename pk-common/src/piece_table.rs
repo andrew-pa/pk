@@ -133,7 +133,7 @@ impl<'t> DoubleEndedIterator for TableChars<'t> {
                 self.hit_beginning = true;
             } else {
                 self.current_piece -= 1;
-                self.current_index = self.table.pieces[self.current_piece].length-1;
+                self.current_index = self.table.pieces[self.current_piece].length.saturating_sub(1);
             }
         } else {
             self.current_index -= 1;
@@ -221,7 +221,7 @@ impl<'table> PieceTable {
         let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
             //println!("{} {:?}", i, p);
-            if index >= ix && index < ix+p.length {
+            if index >= ix && index <= ix+p.length {
                 if index == ix { // we're inserting at the start of this piece
                     self.pieces.insert(i, new_piece);
                     action.push(Change::Insert{piece_index: i, new: new_piece});
@@ -289,7 +289,7 @@ impl<'table> PieceTable {
 
     /// deletes the range [start, end)
     pub fn delete_range(&mut self, start: usize, end: usize) {
-        assert!(end > start);
+        assert!(end > start, "tried to delete a invalid range {}..{}", start, end);
         let mut start_piece: Option<(usize,usize)> = None;
         let mut end_piece:   Option<(usize,usize)> = None;
         let mut mid_pieces:  Vec<usize>            = Vec::new();
@@ -302,7 +302,7 @@ impl<'table> PieceTable {
                 mid_pieces.push(i);
             } else if start >= global_index && start < global_index+p.length {
                 // the range starts in this piece
-                if end >= global_index && end < global_index+p.length {
+                if end >= global_index && end <= global_index+p.length {
                     // this piece totally contains this range since this piece also contains the
                     // end of the range
                     /*if start-global_index == 0 {
@@ -640,6 +640,14 @@ mod tests {
         assert_eq!(pt.text(), "hABCDi");
         println!("{:#?}", pt);
     }
+ 
+    #[test]
+    fn insert_range_end() {
+        let mut pt = PieceTable::with_text("x");
+        pt.insert_range("yz", pt.len());
+        println!("{:#?}", pt);
+        assert_eq!(pt.text(), "xyz");
+    }
 
     #[test]
     fn delete_range_single_piece() {
@@ -658,6 +666,14 @@ mod tests {
         println!("{:#?}", pt);
         assert_eq!(pt.text(), "hlo");
         println!("{:#?}", pt);
+    }
+
+    #[test]
+    fn delete_range_end() {
+        let mut pt = PieceTable::with_text("hello");
+        pt.delete_range(1,pt.len());
+        println!("{:#?}", pt);
+        assert_eq!(pt.text(), "h");
     }
 
     #[test]
