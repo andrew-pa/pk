@@ -72,12 +72,13 @@ pub type PEditorState = Arc<RwLock<EditorState>>;
 
 impl EditorState {
     pub fn with_config(config: Config) -> EditorState {
+        use futures::executor::ThreadPoolBuilder;
         EditorState {
             buffers: Vec::new(),
             current_buffer: 0,
             registers: HashMap::new(),
             command_line: None,
-            thread_pool: futures::executor::ThreadPool::new().unwrap(),
+            thread_pool: ThreadPoolBuilder::new().create().unwrap(),
             servers: HashMap::new(),
             force_redraw: false,
             usrmsgs: Vec::new(),
@@ -88,9 +89,10 @@ impl EditorState {
 
     pub fn connect_to_server(state: PEditorState, name: String, url: &str) {
         let tp = {state.read().unwrap().thread_pool.clone()};
+        let stp = tp.clone();
         let url = url.to_owned();
         tp.spawn_ok(async move {
-            match Server::init(&url) {
+            match Server::init(&url, stp) {
                 Ok(s) => {
                     let mut state = state.write().unwrap();
                     state.servers.insert(name.clone(), s);
@@ -188,9 +190,10 @@ impl EditorState {
                                         2 => {
                                             state.current_buffer = state.buffers.len();
                                             let p = state.buffers[buffer_index].path.clone();
+                                            let f = state.buffers[buffer_index].format.clone();
                                             let server_name = state.buffers[buffer_index].server_name.clone();
                                             state.buffers.push(Buffer::from_server(server_name, p,
-                                                    id, server_text.clone(), server_version));
+                                                    id, server_text.clone(), server_version, f));
                                             // don't clear conflict flag on buffer so we don't try
                                             // to sync the conflicting version again. TODO: some
                                             // way to manually clear the flag?

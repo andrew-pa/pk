@@ -7,6 +7,7 @@ pub struct Buffer {
     pub server_name: String,
     pub path: PathBuf,
     pub file_id: protocol::FileId,
+    pub format: protocol::TextFormat,
     pub version: usize,
     pub cursor_index: usize,
     pub currently_in_conflict: bool
@@ -18,16 +19,16 @@ impl Buffer {
             text: PieceTable::with_text(s),
             version: 0, file_id: protocol::FileId(0),
             cursor_index: 0, server_name: "".into(),
-            path: "".into(), currently_in_conflict: false
+            path: "".into(), currently_in_conflict: false, format: protocol::TextFormat::default()
         }
     }
 
-    pub fn from_server(server_name: String, path: PathBuf, file_id: protocol::FileId, contents: String, version: usize) -> Buffer {
+    pub fn from_server(server_name: String, path: PathBuf, file_id: protocol::FileId, contents: String, version: usize, format: protocol::TextFormat) -> Buffer {
         Buffer {
             text: PieceTable::with_text(&contents),
             file_id, version,
             cursor_index: 0, server_name, path,
-            currently_in_conflict: false
+            currently_in_conflict: false, format
         }
     }
 

@@ -516,11 +516,11 @@ mod tests {
     use crate::piece_table::*;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn fuzz_api() -> Result<(), Box<dyn std::error::Error>> {
         let mut pt = PieceTable::with_text("asdf\nasdf\nasdf\nasdf\n");
         
-        for i in 0..10_000 {
+        for i in 0..1_000_000 {
             if pt.text().len() == 0 { println!("deleted entire text"); break; }
             match (rand::random::<usize>()+1) % 6 {
                 0 => {

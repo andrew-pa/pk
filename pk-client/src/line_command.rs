@@ -30,10 +30,11 @@ impl CommandFn for EditFileCommand {
             .ok_or(Error::InvalidCommand("missing path for editing a file".into()))?;
         EditorState::make_request_async(es, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, |ess, resp| {
             match resp {
-                protocol::Response::FileInfo { id, contents, version } => {
+                protocol::Response::FileInfo { id, contents, version, format } => {
                     let mut state = ess.write().unwrap();
                     state.current_buffer = state.buffers.len();
-                    state.buffers.push(Buffer::from_server(String::from(server_name), path, id, contents, version));
+                    state.buffers.push(Buffer::from_server(String::from(server_name),
+                        path, id, contents, version, format));
                     state.force_redraw = true;
                 },
                 _ => panic!() 
@@ -43,10 +44,68 @@ impl CommandFn for EditFileCommand {
     }
 }
 
+pub struct BufferCommand;
+
+impl CommandFn for BufferCommand {
+    fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
+        let name_query = a.name("name_query")
+            .ok_or_else(|| Error::InvalidCommand("expected buffer name".into()))?.as_str();
+
+        let mut bufs: Vec<(usize, i64)> = {
+            use fuzzy_matcher::skim::fuzzy_match;
+            es.read().unwrap().buffers.iter().enumerate()
+                .flat_map(|(i, b)| b.path.to_str().and_then(|p| fuzzy_match(p, name_query)).map(|m| (i, m)))
+                .collect()
+        };
+
+        bufs.sort_by(|a, b| a.1.cmp(&b.1));
+
+        match a.name("subcmd").map(|m| m.as_str()) {
+            None => {
+                if let Some((index, _score)) = bufs.get(0) {
+                    es.write().unwrap().current_buffer = *index;
+                    Ok(Some(Box::new(NormalMode::new())))
+                } else {
+                    Err(Error::InvalidCommand(format!("no matching buffer for {}", name_query)))
+                }
+            },
+            Some("x") => {
+                if let Some((index, _score)) = bufs.get(0) {
+                    let mut state = es.write().unwrap();
+                    let buf = state.buffers.remove(*index);
+                    drop(state);
+                    EditorState::make_request_async(es, buf.server_name, protocol::Request::CloseFile(buf.file_id), 
+                        |s, res| {
+                            match res {
+                                protocol::Response::Ack => {},
+                                protocol::Response::Error { message } => EditorState::process_usr_msgp(s,
+                                                                UserMessage::error(message, None)),
+                                _ => panic!("unexpected server response {:?}", res)
+                            }
+                        }
+                    );
+                    Ok(Some(Box::new(NormalMode::new())))
+                } else {
+                    Err(Error::InvalidCommand(format!("no matching buffer for {}", name_query)))
+                }
+            }
+            Some("l") => {
+                let mut state = es.write().unwrap();
+                let m = UserMessage::info(
+                    bufs.iter().fold(String::from("matching buffers ="),
+                            |s, b| s + " " + state.buffers[b.0].path.to_str().unwrap_or("")), None);
+                state.process_usr_msg(m); 
+                Ok(Some(Box::new(NormalMode::new())))
+            },
+            Some(ukcmd) => Err(Error::InvalidCommand(format!("unknown buffer subcommand: {}", ukcmd)))
+        }
+    }
+}
+
 pub struct SyncFileCommand;
 
 impl CommandFn for SyncFileCommand {
-    fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, es: PEditorState, _: &regex::Captures) -> mode::ModeEventResult {
         let cb = { es.read().unwrap().current_buffer };
         EditorState::sync_buffer(es, cb);
         Ok(Some(Box::new(NormalMode::new())))

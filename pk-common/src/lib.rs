@@ -21,10 +21,51 @@ pub mod protocol {
     #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Hash, Debug)]
     pub struct FileId(pub u64);
 
+    #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Debug)]
+    pub enum LineEnding {
+        LF, CRLF
+    }
+
+    impl Default for LineEnding {
+        fn default() -> Self {
+            if cfg!(windows) {
+                LineEnding::CRLF
+            } else {
+                LineEnding::LF
+            }
+        }
+    }
+
+    impl LineEnding {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                &LineEnding::LF => "\n",
+                &LineEnding::CRLF => "\r\n"
+            }
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
+    pub struct TextFormat {
+        pub line_ending: LineEnding
+    }
+
+    impl TextFormat {
+        pub fn from_analysis(s: &str) -> TextFormat {
+            let line_ending =
+                s.find('\n')
+                .and_then(|i| s.chars().nth(i.saturating_sub(1)))
+                .map(|c| if c == '\r' { LineEnding::CRLF } else { LineEnding::LF })
+                .unwrap_or(LineEnding::default());
+            TextFormat {
+                line_ending
+            }
+        }
+    }
+
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Request {
         /* files */
-        NewFile { path: std::path::PathBuf },
         OpenFile { path: std::path::PathBuf },
         SyncFile { id: FileId, new_text: String, version: usize },
         ReloadFile(FileId),
@@ -47,7 +88,7 @@ pub mod protocol {
             server_version: usize,
             server_text: String
         },
-        FileInfo { id: FileId, contents: String, version: usize },
+        FileInfo { id: FileId, contents: String, version: usize, format: TextFormat },
     }
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -56,4 +97,15 @@ pub mod protocol {
         pub msg: Response
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn text_fmt_analysis() {
+        use super::protocol::*;
+        assert_eq!(TextFormat::from_analysis(""), TextFormat { line_ending: LineEnding::default() });
+        assert_eq!(TextFormat::from_analysis("asdf\n"), TextFormat { line_ending: LineEnding::LF });
+        assert_eq!(TextFormat::from_analysis("asdf\r\n"), TextFormat { line_ending: LineEnding::CRLF });
+    }
 }

@@ -16,6 +16,7 @@ futures = { version = "0.3", features = ["thread-pool"] }
 toml = "0.5"
 directories-next = "1"
 pico-args = "0.3"
+fuzzy-matcher = "0.3"
 
 [dependencies.nng-sys]
 features = ["cmake-vs2019"]

@@ -44,12 +44,22 @@ impl Mode for NormalMode {
                 self.ctrl_pressed = ms.ctrl();
                 Ok(None)
             }
-            Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), .. }, .. } => {
+            Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
                 match vk {
                     VirtualKeyCode::Escape => {
                         self.pending_buf.clear();
                         Ok(None)
                     },
+                    VirtualKeyCode::Left => {
+                        let mut state = state.write().unwrap();
+                        state.current_buffer = state.current_buffer.saturating_sub(1);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Right => {
+                        let mut state = state.write().unwrap();
+                        state.current_buffer = (state.current_buffer + 1).min(state.buffers.len()-1);
+                        Ok(None)
+                    }
                     VirtualKeyCode::E if self.ctrl_pressed => {
                         Ok(Some(Box::new(UserMessageInteractionMode::new(state))))
                     }
@@ -79,9 +89,7 @@ impl Mode for NormalMode {
                                 let mut state = state.write().unwrap();
                                 let cb = state.current_buffer;
                                 let buf = &mut state.buffers[cb];
-                                Ok(Some(Box::new(InsertMode {
-                                    tmut: buf.text.insert_mutator(buf.cursor_index)
-                                }))) 
+                                Ok(Some(Box::new(InsertMode::new(buf.text.insert_mutator(buf.cursor_index))))) 
                             },
                             _ => panic!("unknown mode: {:?}", res)
                         }
@@ -103,9 +111,17 @@ impl Mode for NormalMode {
 
 
 pub struct InsertMode {
-    tmut: piece_table::TableMutator
+    tmut: piece_table::TableMutator,
+    shift_pressed: bool
 }
 
+impl InsertMode {
+    fn new(tmut: piece_table::TableMutator) -> InsertMode {
+        InsertMode {
+            tmut, shift_pressed: false
+        }
+    }
+}
 
 impl fmt::Display for InsertMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -123,6 +139,7 @@ impl Mode for InsertMode {
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
         let cb = state.current_buffer;
+        let (softtab, tabstop) = (state.config.softtab, state.config.tabstop);
         let buf = &mut state.buffers[cb];
         match e {
             Event::ReceivedCharacter(c) if !c.is_control() => {
@@ -130,8 +147,26 @@ impl Mode for InsertMode {
                 buf.cursor_index += 1;
                 Ok(None)
             },
-            Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
+            Event::ModifiersChanged(ms) => {
+                self.shift_pressed = ms.shift();
+                Ok(None)
+            },
+            Event::KeyboardInput {
+                input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, ..
+            } => {
                 match vk {
+                    VirtualKeyCode::Tab => {
+                        if softtab || !self.shift_pressed {
+                            for _ in 0..tabstop {
+                                self.tmut.push_char(&mut buf.text, ' ');
+                            }
+                            buf.cursor_index += tabstop;
+                        } else {
+                            self.tmut.push_char(&mut buf.text, '\t');
+                            buf.cursor_index += 1;
+                        }
+                        Ok(None)
+                    },
                     VirtualKeyCode::Back => {
                         if !self.tmut.pop_char(&mut buf.text) {
                             buf.cursor_index -= 1;
@@ -139,7 +174,9 @@ impl Mode for InsertMode {
                         Ok(None)
                     },
                     VirtualKeyCode::Return => {
-                        self.tmut.push_char(&mut buf.text, '\n');
+                        for c in buf.format.line_ending.as_str().chars() {
+                            self.tmut.push_char(&mut buf.text, c);
+                        }
                         buf.cursor_index += 1;
                         Ok(None)
                     }
@@ -164,6 +201,8 @@ pub struct CommandMode {
 
 impl CommandMode {
     pub fn new(state: PEditorState) -> CommandMode {
+        use regex::Regex;
+        use line_command::*;
         let mut pt = PieceTable::default();
         let cursor_mutator = pt.insert_mutator(0);
         let mut state = state.write().unwrap();
@@ -172,10 +211,11 @@ impl CommandMode {
         CommandMode {
             cursor_mutator,
             commands: vec![
-                (regex::Regex::new("^test (.*)").unwrap(), Rc::new(line_command::TestCommand)),
-                (regex::Regex::new(r#"^e\s+(?:(?P<server_name>\w*):)?(?P<path>.*)"#).unwrap(), Rc::new(line_command::EditFileCommand)),
-                (regex::Regex::new("^sync").unwrap(), Rc::new(line_command::SyncFileCommand)),
-                (regex::Regex::new(r#"^con\s(?P<server_name>\w*)\s(?P<server_url>.*)"#).unwrap(), Rc::new(line_command::ConnectToServerCommand)),
+                (Regex::new("^test (.*)").unwrap(), Rc::new(TestCommand)),
+                (Regex::new(r#"^e\s+(?:(?P<server_name>\w+):)?(?P<path>.*)"#).unwrap(), Rc::new(EditFileCommand)),
+                (Regex::new(r#"^b(?P<subcmd>\w+)?\s+(?P<name_query>.*)"#).unwrap(), Rc::new(BufferCommand)),
+                (Regex::new("^sync").unwrap(), Rc::new(SyncFileCommand)),
+                (Regex::new(r#"^con\s+(?P<server_name>\w+)\s(?P<server_url>.*)"#).unwrap(), Rc::new(ConnectToServerCommand)),
             ],
         }
     }
@@ -223,7 +263,6 @@ impl Mode for CommandMode {
                             if let Some((cmdix, args)) = self.commands.iter().enumerate()
                                 .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
                             {
-                                println!("{:?} {:?}", cmdix, args);
                                 let cmd = self.commands[cmdix].1.clone();
                                 drop(pstate);
                                 cmd.process(state.clone(), &args)

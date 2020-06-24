@@ -90,16 +90,20 @@ impl Colorscheme {
 pub struct Config {
     pub autoconnect_servers: Vec<(String, String)>,
     pub font: (String, f32),
+    pub tabstop: usize,
+    pub softtab: bool,
     pub colors: Colorscheme
 }
 
 impl Config {
     pub fn from_toml(val: toml::Value) -> Result<Config, super::Error> {
         use toml::Value;
+
         let mut cfg = Config::default();
         if val.get("no-local-server").and_then(Value::as_bool).unwrap_or(false) {
             cfg.autoconnect_servers.pop();
         }
+
         if let Some(s) = val.get("autoconnect").and_then(Value::as_array) {
             for srv in s.iter() {
                 cfg.autoconnect_servers.push((
@@ -110,6 +114,7 @@ impl Config {
                 ));
             }
         }
+
         if let Some(f) = val.get("font").and_then(Value::as_table) {
             cfg.font = (
                 f.get("name").and_then(Value::as_str)
@@ -118,9 +123,21 @@ impl Config {
                     .ok_or_else(|| Error::ConfigParseError("Expected font size".into(), val.get("font").cloned()))? as f32
             );
         }
+
         if let Some(ct) = val.get("colors") {
             cfg.colors = Colorscheme::from_toml(ct)?;
         }
+
+        if let Some(ts) = val.get("tabs") {
+            use std::convert::TryInto;
+            cfg.softtab = ts.get("soft-tab").and_then(|st| st.as_bool()).unwrap_or(cfg.softtab);
+            match ts.get("tabstop").and_then(|ts| ts.as_integer()) {
+                Some(s) => cfg.tabstop = s.try_into()
+                    .map_err(|_| Error::ConfigParseError("Expected positive tabstop value".into(), Some(ts.clone())))?,
+                None => {}
+            };
+        }
+
         Ok(cfg)
     }
 }
@@ -130,6 +147,7 @@ impl Default for Config {
         Config {
             autoconnect_servers: vec![("local".into(), "ipc://pk".into())],
             font: ("Fira Code".into(), 14.0),
+            tabstop: 4, softtab: true,
             colors: Colorscheme::default()
         }
     }

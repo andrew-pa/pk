@@ -162,6 +162,7 @@ impl Command {
                 match op {
                     Operator::Delete | Operator::Change => {
                         let mut r = mo.range(buf, *op_count);
+                        println!("{:?}", r);
                         if let MotionType::An(_) = mo.mo {
                             r.end += 1;
                         }
@@ -172,13 +173,13 @@ impl Command {
                             // adjust range for changing so that it doesn't grab trailing
                             // whitespace, especially newlines
                             if *op == Operator::Change && buf.text.char_at(r.start).map(motion::CharClassify::class)
-                                    .map_or(false, |c| c != CharClass::Whitespace) {
-                                while buf.text.char_at(r.end.saturating_sub(1)).map(motion::CharClassify::class)
-                                    .map_or(false, |c| c == CharClass::Whitespace) {
-                                        println!("{}", r.end);
-                                        r.end = r.end.saturating_sub(1);
+                                .map_or(false, |c| c != CharClass::Whitespace) {
+                                    while buf.text.char_at(r.end.saturating_sub(1)).map(motion::CharClassify::class)
+                                        .map_or(false, |c| c == CharClass::Whitespace) {
+                                            println!("{}", r.end);
+                                            r.end = r.end.saturating_sub(1);
+                                        }
                                 }
-                            }
                             state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                             buf.text.delete_range(r.start, r.end);
                         }
@@ -217,17 +218,21 @@ impl Command {
                             Direction::Backward => buf.current_start_of_line(buf.cursor_index)
                         };
                         println!("{}", idx);
-                        buf.text.insert_range("\n", idx);
+                        buf.text.insert_range(buf.format.line_ending.as_str(), idx);
                         buf.cursor_index = idx;
                         if idx == buf.text.len()-1 {
                             buf.cursor_index += 1;
                         }
                         Ok(Some(*mode))
                     }
+                    Operator::Indent(direction) => {
+                        Ok(None)
+                    }, 
                     _ => unimplemented!()
                 }
             },
             &Command::ChangeMode(mode) => Ok(Some(mode)),
+
             _ => unimplemented!()
         }
     }
@@ -299,6 +304,27 @@ mod tests {
             panic!("expected '2df' to be an incomplete command");
         }
     }
+
+    #[test]
+    fn cmd_delete_a_word() {
+        let mut es = EditorState::default();
+        es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
+        es.buffers[0].text.insert_range("asdf", 5);
+        println!("{}", es.buffers[0].text.text());
+        assert_eq!(es.buffers[0].text.text(), "asdf|asdf|asdf");
+        es.buffers[0].cursor_index = 6;
+        Command::parse("daw").unwrap().execute(&mut es).unwrap();
+        assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
+    }
+
+    #[test]
+    fn cmd_delete_in_word() {
+        let mut es = EditorState::default();
+        es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
+        es.buffers[0].text.insert_range("asdf", 5);
+        es.buffers[0].cursor_index = 6;
+        Command::parse("diw").unwrap().execute(&mut es).unwrap();
+        assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
+    }
+
 }
-
-

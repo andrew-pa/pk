@@ -38,24 +38,28 @@ impl std::error::Error for ServerError {
     }
 }
 
+
 use std::path::PathBuf;
 
 #[derive(Default)]
 struct File {
     path: Option<PathBuf>,
     contents: String,
-    current_version: usize
+    current_version: usize,
+    format: protocol::TextFormat
 }
 
 impl File {
     fn from_path<P: AsRef<std::path::Path>>(p: P) -> Result<File, ServerError> {
+        let path = Some({ let mut pa = PathBuf::new(); pa.push(&p); pa });
+        let contents = match std::fs::read_to_string(p) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(ServerError::IoError(e))
+        };
         Ok(File {
-            path: Some({ let mut pa = PathBuf::new(); pa.push(&p); pa }),
-            contents: match std::fs::read_to_string(p) {
-                Ok(s) => s,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(e) => return Err(ServerError::IoError(e))
-            },
+            format: protocol::TextFormat::from_analysis(&contents),
+            path, contents,
             current_version: 0
         })
     }
@@ -86,33 +90,24 @@ impl Server {
         println!("request = {:?}", msg);
         use protocol::*;
         match msg {
-            Request::NewFile { path } => {
-                let buf = File::default();
-                let id = self.next_file_id;
-                self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
-                let (id, contents, version) = (id, buf.contents.clone(), buf.current_version);
-                self.open_files.insert(id, buf);
-                Ok(Response::FileInfo {
-                    id, contents, version
-                })
-            },
             Request::OpenFile { path } => {
-                let (id, contents, version) = 
+                let (id, contents, version, format) = 
                     if let Some((id, buf)) = self.open_files.iter().find(|b| b.1.path.as_ref().map(|p| *p == path).unwrap_or(false)) {
-                        (*id, buf.contents.clone(), buf.current_version)
+                        (*id, buf.contents.clone(), buf.current_version, buf.format.clone())
                     }
                     else {
                         let buf = File::from_path(&path)?;
                         let id = self.next_file_id;
                         self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
-                        let res = (id, buf.contents.clone(), buf.current_version);
+                        let res = (id, buf.contents.clone(), buf.current_version, buf.format.clone());
                         self.open_files.insert(id, buf);
                         res
                     };
                 Ok(Response::FileInfo {
                     id,
                     contents,
-                    version
+                    version,
+                    format
                 })
             },
             Request::SyncFile { id, new_text, version } => {
@@ -131,7 +126,9 @@ impl Server {
                 }
             },
             Request::CloseFile(id) => {
-                self.open_files.remove(&id).ok_or_else(|| ServerError::BadFileId(id))?;
+                self.open_files.remove(&id)
+                    .ok_or_else(|| ServerError::BadFileId(id))?
+                    .write_to_disk()?;
                 Ok(Response::Ack)
             }
             _ => Err(ServerError::UnknownMessage)
@@ -152,6 +149,7 @@ impl Server {
                         req_id: protocol::MessageId(0),
                         msg: protocol::Response::Error { message: format!("error decoding request {}", err) }
                     });
+                // println!("response = {:?}", resp);
                 let mut msg = nng::Message::new().expect("create message");
                 serde_cbor::to_writer(&mut msg, &resp).expect("serialize message");
                 cx.send(aio, msg).unwrap();
@@ -179,9 +177,15 @@ impl AutosaveWorker {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let srv = self.server.read().unwrap();
             for (file_id, file) in srv.open_files.iter() {
-                if let Some(last_disk_version) = self.disk_versions.insert(*file_id, file.current_version) {
-                    if last_disk_version < file.current_version {
-                        file.write_to_disk().unwrap();
+                let disk_version = self.disk_versions.entry(*file_id).or_insert(0);
+                if *disk_version < file.current_version {
+                    println!("save v{} < v{} - {:?}", *disk_version, file.current_version, file.path.as_ref());
+                    match file.write_to_disk() {
+                        Ok(()) => *disk_version = file.current_version,
+                        Err(e) => {
+                            println!("error syncing {} to disk: {}",
+                                     file.path.as_ref().and_then(|p| p.to_str()).unwrap_or(""), e);
+                        }
                     }
                 }
             }
@@ -257,7 +261,7 @@ fn main() -> Result<(), ServerError> {
     let socket = nng::Socket::new(nng::Protocol::Rep0).map_err(ServerError::TransportError)?;
 
     //let pool = threadpool::ThreadPool::new(8);
-    let mut server = Arc::new(RwLock::new(Server::new()));
+    let server = Arc::new(RwLock::new(Server::new()));
 
     let ts = (0..8).map(|_| {
         let cx = nng::Context::new(&socket)?;
