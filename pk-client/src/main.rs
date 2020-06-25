@@ -62,6 +62,21 @@ impl Error {
     }
 }
 
+fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
+    use regex::{Regex, Captures};
+    use piece_table_render::Highlight;
+    use config::ColorschemeSel;
+    let syni: Vec<(Regex, Box<dyn Fn(regex::Captures) -> Highlight>)> = vec![
+        (Regex::new(r#"\s?(fn|pub|struct|impl|for|let|use|mod)\s"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(0)))),
+        (Regex::new(r#"-?\d+\.?\d*"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(1)))),
+        (Regex::new(r#"(\w+)::"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(4)))),
+        (Regex::new(r#"(\w+)\s?\{"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(4)))),
+        (Regex::new(r#"(\w+)\s?\("#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(6)))),
+        (Regex::new(r#"".+""#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(3)))),
+    ];
+    Some(syni.iter().flat_map(|(r, f)| r.captures_iter(s).map(f)).collect())
+}
+
 
 struct PkApp {
     fnt: Font,
@@ -112,6 +127,7 @@ impl runic::App for PkApp {
         let txr = PieceTableRenderer::init(rx, fnt.clone());
         let mut cmd_txr = PieceTableRenderer::init(rx, fnt.clone());
         cmd_txr.cursor_style = CursorStyle::Line;
+        cmd_txr.highlight_line = false;
         PkApp {
             mode: Box::new(mode::CommandMode::new(state.clone())),
             fnt, txr, cmd_txr, state
@@ -205,7 +221,7 @@ impl runic::App for PkApp {
 
             self.txr.cursor_style = self.mode.cursor_style();
             self.txr.ensure_line_visible(curln, editor_bounds);
-            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds);
+            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, compute_highlight(&buf.text.text()));
         } else {
             rx.set_color(state.config.colors.accent[5]);
             rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 
@@ -216,7 +232,7 @@ impl runic::App for PkApp {
             rx.set_color(state.config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.three_quarter_gray);
-            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0));
+            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
         }
 
         /*let mut y = 30.0;

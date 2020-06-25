@@ -179,7 +179,8 @@ impl AutosaveWorker {
             for (file_id, file) in srv.open_files.iter() {
                 let disk_version = self.disk_versions.entry(*file_id).or_insert(0);
                 if *disk_version < file.current_version {
-                    println!("save v{} < v{} - {:?}", *disk_version, file.current_version, file.path.as_ref());
+                    println!("save v{} < v{} - {:?}", *disk_version,
+                             file.current_version, file.path.as_ref());
                     match file.write_to_disk() {
                         Ok(()) => *disk_version = file.current_version,
                         Err(e) => {

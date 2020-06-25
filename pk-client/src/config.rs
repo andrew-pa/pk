@@ -17,6 +17,16 @@ fn color_from_hex(h: &str) -> Result<Color, std::num::ParseIntError> {
     Ok(Color::rgba(r,g,b,a))
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum ColorschemeSel {
+    Background,
+    QuarterGray,
+    HalfGray,
+    ThreeQuarterGray,
+    Foreground,
+    Accent(usize)
+}
+
 #[derive(Clone, Debug)]
 pub struct Colorscheme {
     pub background: Color,
@@ -51,6 +61,17 @@ impl Default for Colorscheme {
 }
 
 impl Colorscheme {
+    pub fn get(&self, sel: ColorschemeSel) -> &Color {
+        match sel {
+            ColorschemeSel::Background => &self.background,
+            ColorschemeSel::QuarterGray => &self.quarter_gray,
+            ColorschemeSel::HalfGray => &self.half_gray,
+            ColorschemeSel::ThreeQuarterGray => &self.three_quarter_gray,
+            ColorschemeSel::Foreground => &self.foreground,
+            ColorschemeSel::Accent(i) => &self.accent[i],
+        }
+    }
+
     fn from_toml(val: &toml::Value) -> Result<Colorscheme, super::Error> {
         use toml::Value;
         let background = val.get("background").and_then(Value::as_str)

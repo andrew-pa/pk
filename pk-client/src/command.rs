@@ -162,7 +162,6 @@ impl Command {
                 match op {
                     Operator::Delete | Operator::Change => {
                         let mut r = mo.range(buf, *op_count);
-                        println!("{:?}", r);
                         if let MotionType::An(_) = mo.mo {
                             r.end += 1;
                         }
@@ -309,12 +308,14 @@ mod tests {
     fn cmd_delete_a_word() {
         let mut es = EditorState::default();
         es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
+        for i in 0..5 {
         es.buffers[0].text.insert_range("asdf", 5);
-        println!("{}", es.buffers[0].text.text());
+        println!("i{} {}", i, es.buffers[0].text.text());
         assert_eq!(es.buffers[0].text.text(), "asdf|asdf|asdf");
         es.buffers[0].cursor_index = 6;
         Command::parse("daw").unwrap().execute(&mut es).unwrap();
         assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
+        }
     }
 
     #[test]
@@ -322,7 +323,7 @@ mod tests {
         let mut es = EditorState::default();
         es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
         es.buffers[0].text.insert_range("asdf", 5);
-        es.buffers[0].cursor_index = 6;
+        es.buffers[0].cursor_index = 7;
         Command::parse("diw").unwrap().execute(&mut es).unwrap();
         assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
     }

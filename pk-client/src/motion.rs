@@ -52,6 +52,7 @@ impl TextObject {
                 // find start of range
                 let mut chars = buf.text.chars(range.start)
                     .rev()
+                    // .inspect(|i| println!("b-{}", i))
                     .map(CharClassify::class)
                     .map(|cc| if bigword && cc == CharClass::Punctuation { CharClass::Regular } else { cc })
                     .peekable();
@@ -62,8 +63,9 @@ impl TextObject {
                 }
                 // find end of range
                 if !include && starting_class == CharClass::Whitespace { return range; }
-                range.end = range.start;
+                range.end = range.start+1;
                 let mut chars = buf.text.chars(range.end)
+                    // .inspect(|i| println!("f-{}", i))
                     .map(CharClassify::class)
                     .map(|cc| if bigword && cc == CharClass::Punctuation { CharClass::Regular } else { cc })
                     .peekable();
