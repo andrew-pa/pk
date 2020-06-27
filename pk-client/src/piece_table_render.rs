@@ -27,13 +27,16 @@ impl CursorStyleDraw for CursorStyle {
     }
 }
 
+#[derive(Debug)]
 enum HighlightType {
     Foreground(ColorschemeSel),
 }
 
 use std::ops::Range;
+
+#[derive(Debug)]
 pub struct Highlight {
-    range: Range<usize>,
+    pub range: Range<usize>,
     sort: HighlightType
 }
 
@@ -46,7 +49,7 @@ impl Highlight {
 }
 
 impl HighlightType {
-    fn apply_to_layout_or_draw(&self, pos: &Point, range: Range<usize>, rx: &mut RenderContext, txl: &TextLayout,
+    fn apply_to_layout(&self, range: Range<usize>, rx: &mut RenderContext, txl: &TextLayout,
                                colors: &Colorscheme) {
         let cr = range.start as u32 .. range.end as u32;
         match self {
@@ -55,22 +58,48 @@ impl HighlightType {
     }
 }
 
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 pub struct PieceTableRenderer {
     fnt: Font,
     pub em_bounds: Rect,
     pub viewport_start: usize,
     pub cursor_style: CursorStyle,
-    pub highlight_line: bool
+    pub highlight_line: bool,
+    layout_cashe: HashMap<usize, (u64, TextLayout)>
 }
 
 impl PieceTableRenderer {
     pub fn init(rx: &mut RenderContext, fnt: Font) -> Self {
         let ml = rx.new_text_layout("M", &fnt, 100.0, 100.0).expect("create em size layout");
-        PieceTableRenderer { fnt, viewport_start: 0, em_bounds: ml.bounds(), cursor_style: CursorStyle::Underline, highlight_line: true }
+        PieceTableRenderer {
+            fnt,
+            viewport_start: 0,
+            em_bounds: ml.bounds(),
+            cursor_style: CursorStyle::Underline,
+            highlight_line: true,
+            layout_cashe: HashMap::new()
+        }
     }
 
     fn viewport_end(&self, bounds: &Rect) -> usize {
         self.viewport_start + ((bounds.h / self.em_bounds.h).floor() as usize).saturating_sub(2)
+    }
+
+    fn generate_line_layout(&self, ln: &str, global_index: usize, rx: &mut RenderContext, colors: &Colorscheme, highlights: Option<&Vec<Highlight>>) -> TextLayout {
+        let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
+        if let Some(hl) = highlights.as_ref() {
+            for h in hl.iter() {
+                if h.range.start > global_index + ln.len() { break; }
+                if h.range.start < global_index && h.range.end < global_index { continue; }
+                let range = h.range.start.saturating_sub(global_index) .. h.range.end.saturating_sub(global_index);
+                //if range.len() == 0 { continue; }
+                h.sort.apply_to_layout(range, rx, &layout, colors);
+            }
+        }
+        layout
     }
 
     pub fn ensure_line_visible(&mut self, line: usize, bounds: Rect) {
@@ -80,7 +109,7 @@ impl PieceTableRenderer {
     }
 
     pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, cursor_index: usize,
-                 config: &Config, bounds: Rect, highlights: Option<Vec<Highlight>>)
+                 config: &Config, bounds: Rect, highlights: Option<&Vec<Highlight>>)
     {
         rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
@@ -99,14 +128,23 @@ impl PieceTableRenderer {
                     global_index += ln.len()+1;
                     continue;
                 }
-                let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
-                if let Some(hl) = highlights.as_ref() {
-                    for h in hl {
-                        let range = h.range.start.saturating_sub(global_index) .. h.range.end.saturating_sub(global_index);
-                        if range.len() == 0 { continue; }
-                        h.sort.apply_to_layout_or_draw(&cur_pos, range, rx, &layout, &config.colors);
-                    }
-                }
+                let mut hh = DefaultHasher::new();
+                ln.hash(&mut hh);
+                let ln_hash = hh.finish();
+                let layout = if let Some((h, ly)) 
+                    = self.layout_cashe.get(&line_num)
+                {
+                    if *h != ln_hash {
+                        // generate layout
+                        let ly = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
+                        self.layout_cashe.insert(line_num, (ln_hash, ly.clone()));
+                        ly
+                    } else { ly.clone() }
+                } else {
+                    let ly = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
+                    self.layout_cashe.insert(line_num, (ln_hash, ly.clone()));
+                    ly
+                };
                 rx.draw_text_layout(cur_pos, &layout);
                 if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
                     let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);

@@ -216,8 +216,7 @@ impl Command {
                             Direction::Forward => buf.next_line_index(buf.cursor_index),
                             Direction::Backward => buf.current_start_of_line(buf.cursor_index)
                         };
-                        println!("{}", idx);
-                        buf.text.insert_range(buf.format.line_ending.as_str(), idx);
+                        buf.text.insert_range("\n", idx);
                         buf.cursor_index = idx;
                         if idx == buf.text.len()-1 {
                             buf.cursor_index += 1;

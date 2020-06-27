@@ -63,6 +63,27 @@ pub mod protocol {
         }
     }
 
+    #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Clone)]
+    pub struct FileType {
+        data: [u8; 4]
+    }
+
+    impl From<&str> for FileType {
+        fn from(s: &str) -> Self {
+            assert!(s.len() >= 4);
+            let b = s.as_bytes();
+            FileType { data: [b[0], b[1], b[2], b[3]] }
+        }
+    }
+
+    impl std::fmt::Debug for FileType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            unsafe {
+                write!(f, "FileType({})", std::str::from_utf8_unchecked(&self.data))
+            }
+        }
+    }
+
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Request {
         /* files */

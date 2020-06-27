@@ -858,6 +858,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "threadpool",
+ "toml",
 ]
 
 [[package]]

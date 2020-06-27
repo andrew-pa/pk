@@ -3,6 +3,7 @@ use pk_common::protocol;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::path::{PathBuf, Path};
 
 #[derive(Debug)]
 enum ServerError { 
@@ -12,6 +13,24 @@ enum ServerError {
     InternalError,
     BadFileId(protocol::FileId),
     UnknownMessage
+}
+
+impl From<serde_cbor::Error> for ServerError {
+    fn from(e: serde_cbor::Error) -> Self {
+        Self::MessageSerdeError(e)
+    }
+}
+
+impl From<nng::Error> for ServerError {
+    fn from(e: nng::Error) -> Self {
+        Self::TransportError(e)
+    }
+}
+
+impl From<std::io::Error> for ServerError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e)
+    }
 }
 
 impl std::fmt::Display for ServerError {
@@ -38,8 +57,29 @@ impl std::error::Error for ServerError {
     }
 }
 
+mod filetype_table {
+    use serde::Deserialize;
+    use std::path::Path;
 
-use std::path::PathBuf;
+    #[derive(Deserialize, Debug)]
+    pub struct FileType {
+        pub name: String,
+        pub ext: Vec<String>
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct FileTypeTable {
+        filetype: Vec<FileType>
+    }
+
+    impl FileTypeTable {
+        fn analyze(&self, path: impl AsRef<Path>) -> super::protocol::FileType {
+        }
+    }
+}
+
+use filetype_table::FileTypeTable;
+
 
 #[derive(Default)]
 struct File {
@@ -50,15 +90,23 @@ struct File {
 }
 
 impl File {
-    fn from_path<P: AsRef<std::path::Path>>(p: P) -> Result<File, ServerError> {
+    fn analyze_file_for_type(filetype_table: &FileTypeTable, path: impl AsRef<Path>, cnt: impl AsRef<str>) -> protocol::FileType {
+        protocol::FileType::from("text")
+    }
+
+    fn from_path<P: AsRef<Path>>(p: P, filetype_table: &FileTypeTable) -> Result<File, ServerError> {
         let path = Some({ let mut pa = PathBuf::new(); pa.push(&p); pa });
-        let contents = match std::fs::read_to_string(p) {
+        let mut contents = match std::fs::read_to_string(p) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(ServerError::IoError(e))
         };
+        let fmt = protocol::TextFormat::from_analysis(&contents);
+        if fmt.line_ending == protocol::LineEnding::CRLF {
+            contents = contents.replace("\r\n", "\n");
+        }
         Ok(File {
-            format: protocol::TextFormat::from_analysis(&contents),
+            format: fmt,
             path, contents,
             current_version: 0
         })
@@ -67,7 +115,11 @@ impl File {
     fn write_to_disk(&self) -> Result<(), ServerError> {
         if let Some(path) = self.path.as_ref() {
             println!("writing {} v{} to disk", path.to_str().unwrap_or(""), self.current_version);
-            std::fs::write(path, &self.contents).map_err(ServerError::IoError)?;
+            if self.format.line_ending == protocol::LineEnding::CRLF { 
+                std::fs::write(path, self.contents.replace("\n", "\r\n"))?;
+            } else {
+                std::fs::write(path, &self.contents)?;
+            }
         }
         Ok(())
     }
@@ -75,14 +127,16 @@ impl File {
 
 struct Server {
     open_files: HashMap<protocol::FileId, File>,
-    next_file_id: protocol::FileId
+    next_file_id: protocol::FileId,
+    filetype_table: FileTypeTable
 }
 
 impl Server {
-    fn new() -> Self {
+    fn new(filetype_table: FileTypeTable) -> Self {
         Server {
             open_files: HashMap::new(),
-            next_file_id: protocol::FileId(1)
+            next_file_id: protocol::FileId(1),
+            filetype_table
         }
     }
 
@@ -96,7 +150,7 @@ impl Server {
                         (*id, buf.contents.clone(), buf.current_version, buf.format.clone())
                     }
                     else {
-                        let buf = File::from_path(&path)?;
+                        let buf = File::from_path(&path, &self.filetype_table)?;
                         let id = self.next_file_id;
                         self.next_file_id = protocol::FileId(self.next_file_id.0 + 1);
                         let res = (id, buf.contents.clone(), buf.current_version, buf.format.clone());
@@ -139,7 +193,7 @@ impl Server {
         match res {
             nng::AioResult::Send(Ok(_)) => while let Err(e) = cx.recv(aio) { println!("error recieving message {}", e); },
             nng::AioResult::Recv(Ok(raw_msg)) => {
-                let resp = serde_cbor::from_slice(raw_msg.as_slice()).map_err(ServerError::MessageSerdeError)
+                let resp = serde_cbor::from_slice(raw_msg.as_slice())
                     .map(|req: protocol::MsgRequest| protocol::MsgResponse {
                         req_id: req.msg_id,
                         msg: server.write().unwrap()
@@ -194,75 +248,15 @@ impl AutosaveWorker {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-//     #[test]
-//     fn msg_new_buffer() {
-//         let mut srv = Server::new();
-//         let rsp = srv.process_request(protocol::Request::NewBuffer).expect("response");
-//         match rsp {
-//             protocol::Response::Buffer { id, contents, next_action_id } => {
-//                 assert_eq!(id, protocol::BufferId(1));
-//                 let defp = piece_table::PieceTable::default();
-//                 assert_eq!(contents, defp.text());
-//                 assert_eq!(next_action_id, defp.next_action_id);
-//             },
-//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
-//             _ => panic!("unexpected response: {:?}", rsp)
-//         }
-//     }
-
-//     #[test]
-//     fn msg_open_buffer() {
-//         let mut srv = Server::new();
-//         let rsp = srv.process_request(protocol::Request::OpenBuffer {
-//             path: std::path::PathBuf::from("Cargo.toml")
-//         }).expect("response");
-//         match rsp {
-//             protocol::Response::Buffer { id, contents, next_action_id } => {
-//                 assert_eq!(id, protocol::BufferId(1));
-//                 assert_eq!(contents, std::fs::read_to_string("Cargo.toml").expect("read test file"));
-//                 assert_eq!(next_action_id, 1);
-//             },
-//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
-//             _ => panic!("unexpected response: {:?}", rsp)
-//         }
-//     }
-
-//     #[test]
-//     fn msg_sync_buffer() {
-//         let mut srv = Server::new();
-//         let (mut pt, id) = match srv.process_request(protocol::Request::NewBuffer).expect("create buffer") {
-//             protocol::Response::Buffer { id, contents, next_action_id } => {
-//                 (piece_table::PieceTable::with_text_and_starting_action_id(contents.as_str(), next_action_id), id)
-//             },
-//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
-//             rsp@_ => panic!("unexpected response: {:?}", rsp)
-//         };
-
-//         pt.insert_range("hello, world!", 0);
-
-//         match srv.process_request(protocol::Request::SyncBuffer { id, changes: pt.get_changes_from(0) }).expect("sync changes") {
-//             protocol::Response::Ack => {
-//                 assert_eq!(srv.buffers[&id].text.text(), pt.text());
-//             },
-//             protocol::Response::Error { message } => panic!("error occurred: {}", message),
-//             rsp@_ => panic!("unexpected response: {:?}", rsp)
-//         };
-//     }
-
-}
-
-
 fn main() -> Result<(), ServerError> {
     let server_address = std::env::args().skip(1).next().expect("require nng url to listen on");
 
-    let socket = nng::Socket::new(nng::Protocol::Rep0).map_err(ServerError::TransportError)?;
+    let socket = nng::Socket::new(nng::Protocol::Rep0)?;
 
     //let pool = threadpool::ThreadPool::new(8);
-    let server = Arc::new(RwLock::new(Server::new()));
+    let filetype_table = toml::from_str(&std::fs::read_to_string("./filetypes.toml")?).expect("parse filetype table");
+    println!("filetypes = {:?}", filetype_table);
+    let server = Arc::new(RwLock::new(Server::new(filetype_table)));
 
     let ts = (0..8).map(|_| {
         let cx = nng::Context::new(&socket)?;
@@ -273,11 +267,11 @@ fn main() -> Result<(), ServerError> {
 
     }).collect::<Vec<nng::Result<_>>>();
 
-    socket.listen(&server_address).map_err(ServerError::TransportError)?;
+    socket.listen(&server_address)?;
 
     for w in ts.iter() {
         match w {
-            Ok((aio, cx)) => cx.recv(aio).map_err(ServerError::TransportError)?,
+            Ok((aio, cx)) => cx.recv(aio)?,
             Err(e) => println!("error starting worker thread {}", e)
         }
     }
@@ -288,26 +282,6 @@ fn main() -> Result<(), ServerError> {
     });
 
     std::thread::park();
-
-    /*loop {
-        //let msg: protocol::Request = serde_cbor::from_slice(
-        //    socket.recv().map_err(Error::from_other)?.as_slice()).map_err(Error::from_other)?;
-        match reply_rx.try_recv() {
-            Ok(Ok(raw_msg)) => socket.send(raw_msg).map_err(|(m,e)| Error::from_other(e))?,
-            Ok(Err(e)) => socket.send(make_error_message(e)).map_err(|(m,e)| Error::from_other(e))?,
-            Err(std::sync::mpsc::TryRecvError::Empty) => {},
-            Err(e) => return Err(Error::from_other(e))
-        };
-        match socket.try_recv() {
-            Ok(raw_msg) => {
-                let reply_tx = reply_tx.clone();
-                let server = server.clone();
-                pool.execute(move|| Server::process_request(server, reply_tx, raw_msg));
-            },
-            Err(nng::Error::TryAgain) => {},
-            Err(e) => return Err(Error::from_other(e))
-        }
-    }*/
 
     Ok(())
 }

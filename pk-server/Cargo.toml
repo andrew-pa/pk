@@ -12,6 +12,7 @@ pk-common = { path = "../pk-common" }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 threadpool = "1"
+toml = "0.5"
 
 [dependencies.nng-sys]
 features = ["cmake-vs2019"]

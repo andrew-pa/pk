@@ -174,9 +174,7 @@ impl Mode for InsertMode {
                         Ok(None)
                     },
                     VirtualKeyCode::Return => {
-                        for c in buf.format.line_ending.as_str().chars() {
-                            self.tmut.push_char(&mut buf.text, c);
-                        }
+                        self.tmut.push_char(&mut buf.text, '\n');
                         buf.cursor_index += 1;
                         Ok(None)
                     }

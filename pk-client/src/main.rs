@@ -74,7 +74,9 @@ fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
         (Regex::new(r#"(\w+)\s?\("#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(6)))),
         (Regex::new(r#"".+""#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(3)))),
     ];
-    Some(syni.iter().flat_map(|(r, f)| r.captures_iter(s).map(f)).collect())
+    let mut hi: Vec<_> = syni.iter().flat_map(|(r, f)| r.captures_iter(s).map(f)).collect();
+    hi.sort_unstable_by(|a, b| a.range.start.cmp(&b.range.start));
+    Some(hi)
 }
 
 
@@ -84,6 +86,7 @@ struct PkApp {
     cmd_txr: PieceTableRenderer,
     mode: Box<dyn Mode>,
     state: PEditorState,
+    synh: Option<Vec<piece_table_render::Highlight>>
 }
 
 impl runic::App for PkApp {
@@ -130,13 +133,14 @@ impl runic::App for PkApp {
         cmd_txr.highlight_line = false;
         PkApp {
             mode: Box::new(mode::CommandMode::new(state.clone())),
-            fnt, txr, cmd_txr, state
+            fnt, txr, cmd_txr, state, synh: None
         }
     }
 
     fn event(&mut self, e: runic::Event, event_loop_flow: &mut ControlFlowOpts, should_redraw: &mut bool) {
         if let Event::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, .. }, .. } = e {
             *should_redraw = true;
+            self.synh = None;
         }
         if { self.state.read().unwrap().force_redraw } {
             *should_redraw = true;
@@ -159,6 +163,7 @@ impl runic::App for PkApp {
     }
 
     fn paint(&mut self, rx: &mut RenderContext) {
+        let start = std::time::Instant::now();
         let state = self.state.read().unwrap();
 
         rx.clear(state.config.colors.background);
@@ -221,7 +226,20 @@ impl runic::App for PkApp {
 
             self.txr.cursor_style = self.mode.cursor_style();
             self.txr.ensure_line_visible(curln, editor_bounds);
-            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, compute_highlight(&buf.text.text()));
+            if self.synh.is_none() {
+                self.synh = compute_highlight(&buf.text.text());
+            }
+            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, None);
+
+
+            let mut y = 30.0;
+            let mut global_index = 0;
+            for p in buf.text.pieces.iter() {
+                rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
+                                  &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
+                global_index += p.length;
+                y += 16.0;
+            }
         } else {
             rx.set_color(state.config.colors.accent[5]);
             rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 
@@ -235,14 +253,10 @@ impl runic::App for PkApp {
             self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
         }
 
-        /*let mut y = 30.0;
-        let mut global_index = 0;
-        for p in self.buf.text.pieces.iter() {
-            rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
-                                                                        &self.buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
-            global_index += p.length;
-            y += 16.0;
-        }*/
+        let end = std::time::Instant::now();
+        rx.set_color(state.config.colors.quarter_gray);
+        rx.draw_text(Rect::xywh(rx.bounds().w-148.0, rx.bounds().h - 20.0, 1000.0, 1000.0), &format!("f{}ms", (end-start).as_nanos() as f32 / 1000000.0), &self.fnt);
+
     }
 }
 
