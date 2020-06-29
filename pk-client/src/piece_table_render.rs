@@ -151,7 +151,7 @@ impl PieceTableRenderer {
                     self.cursor_style.paint(rx, &curbounds, &self.em_bounds);
                     if self.highlight_line {
                         rx.set_color(config.colors.half_gray.with_alpha(0.1));
-                        rx.fill_rect(Rect::xywh(0f32, cur_pos.y, bounds.w, self.em_bounds.h));
+                        rx.fill_rect(Rect::xywh(bounds.x, bounds.y+cur_pos.y, bounds.w, self.em_bounds.h));
                         rx.set_color(config.colors.foreground);
                     }
                 }

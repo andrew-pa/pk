@@ -137,36 +137,41 @@ impl Command {
     }
      
     pub fn execute(&self, state: &mut editor_state::EditorState) -> Result<Option<ModeTag>, Error> {
-        let cbuf = state.current_buffer;
         match self {
             Command::Move(mo) => {
-                let buf = &mut state.buffers[cbuf];
-                let Range { start: _, end } = mo.range(buf, 1);
-                buf.cursor_index = end;
+                if let Some(buf) = state.current_buffer_mut() {
+                    let Range { start: _, end } = mo.range(buf, buf.cursor_index, 1);
+                    buf.cursor_index = end;
+                }
                 Ok(None)
             },
             Command::Put { count, source_register, clear_register } => {
-                let buf = &mut state.buffers[cbuf];
-                let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
-                buf.text.insert_range(src, buf.cursor_index);
-                buf.cursor_index += src.len();
-                if *clear_register {
-                    state.registers.remove(source_register);
+                if let Some(buf) = state.current_buffer_index() {
+                    let buf = &mut state.buffers[buf];
+                    let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
+                    buf.text.insert_range(src, buf.cursor_index);
+                    buf.cursor_index += src.len();
+                    if *clear_register {
+                        state.registers.remove(source_register);
+                    }
                 }
                 Ok(None)
             },
             Command::Undo { count } => {
-                let buf = &mut state.buffers[cbuf];
-                for _ in 0..*count {
-                    buf.text.undo();
+                if let Some(buf) = state.current_buffer_mut() {
+                    for _ in 0..*count {
+                        buf.text.undo();
+                    }
                 }
                 Ok(None)
             },
             Command::Edit { op, op_count, mo, target_register } => {
-                let buf = &mut state.buffers[cbuf];
+                let buf = if let Some(b) = state.current_buffer_index() { 
+                    &mut state.buffers[b]
+                } else { return Err(Error::InvalidCommand("".into())); };
                 match op {
                     Operator::Delete | Operator::Change => {
-                        let mut r = mo.range(buf, *op_count);
+                        let mut r = mo.range(buf, buf.cursor_index, *op_count);
                         if let MotionType::An(_) = mo.mo {
                             r.end += 1;
                         }
@@ -195,7 +200,7 @@ impl Command {
                         })
                     },
                     Operator::Yank => {
-                        let mut r = mo.range(buf, *op_count);
+                        let mut r = mo.range(buf, buf.cursor_index, *op_count);
                         if let MotionType::An(_) = mo.mo {
                             r.end += 1;
                         }
@@ -206,13 +211,14 @@ impl Command {
                         Ok(None)
                     },
                     Operator::ReplaceChar(c) => {
-                        buf.text.delete_range(buf.cursor_index, buf.cursor_index+1);
-                        let mut m = buf.text.insert_mutator(buf.cursor_index);
+                        let cursor_index = buf.cursor_index;
+                        buf.text.delete_range(cursor_index, cursor_index+1);
+                        let mut m = buf.text.insert_mutator(cursor_index);
                         m.push_char(&mut buf.text, *c);
                         Ok(None)
                     },
                     Operator::MoveAndEnterMode(mode) => {
-                        let Range { start: _, end } = mo.range(buf, 1);
+                        let Range { start: _, end } = mo.range(buf, buf.cursor_index, 1);
                         buf.cursor_index = end;
                         Ok(Some(*mode))
                     },
@@ -224,7 +230,7 @@ impl Command {
                         buf.text.insert_range("\n", idx);
                         buf.cursor_index = idx;
                         if idx == buf.text.len()-1 {
-                            buf.cursor_index += 1;
+                            buf.cursor_index = 1;
                         }
                         Ok(Some(*mode))
                     }
@@ -234,6 +240,7 @@ impl Command {
                     _ => unimplemented!()
                 }
             },
+
             &Command::ChangeMode(mode) => Ok(Some(mode)),
             Command::Leader(c) => match c {
                 'h' | 'j' | 'k' | 'l' => {
@@ -247,7 +254,12 @@ impl Command {
                         state.current_pane = ng;
                     }
                     Ok(None)
-                }
+                },
+                's' | 'v' => {
+                    let nc = state.current_pane().content.clone();
+                    Pane::split(&mut state.panes, state.current_pane, *c == 's', 0.5, nc);
+                    Ok(None)
+                },
                 _ => Err(Error::UnknownCommand(format!("unknown leader command {}", c)))
             },
 
@@ -322,29 +334,4 @@ mod tests {
             panic!("expected '2df' to be an incomplete command");
         }
     }
-
-    #[test]
-    fn cmd_delete_a_word() {
-        let mut es = EditorState::default();
-        es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
-        for i in 0..5 {
-        es.buffers[0].text.insert_range("asdf", 5);
-        println!("i{} {}", i, es.buffers[0].text.text());
-        assert_eq!(es.buffers[0].text.text(), "asdf|asdf|asdf");
-        es.buffers[0].cursor_index = 6;
-        Command::parse("daw").unwrap().execute(&mut es).unwrap();
-        assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
-        }
-    }
-
-    #[test]
-    fn cmd_delete_in_word() {
-        let mut es = EditorState::default();
-        es.buffers.push(buffer::Buffer::with_text("asdf||asdf"));
-        es.buffers[0].text.insert_range("asdf", 5);
-        es.buffers[0].cursor_index = 7;
-        Command::parse("diw").unwrap().execute(&mut es).unwrap();
-        assert_eq!(es.buffers[0].text.text(), "asdf||asdf");
-    }
-
 }

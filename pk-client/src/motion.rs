@@ -43,12 +43,12 @@ fn matching_block_char(c: char) -> char {
 }
 
 impl TextObject {
-    fn range(&self, buf: &Buffer, count: usize, include: bool) -> Range<usize> {
+    fn range(&self, buf: &Buffer, cursor_index: usize, count: usize, include: bool) -> Range<usize> {
         // include = true->An, false->Inner
         match self {
             TextObject::Word | TextObject::BigWord => {
                 let bigword = *self == TextObject::BigWord;
-                let mut range = buf.cursor_index..buf.cursor_index;
+                let mut range = cursor_index..cursor_index;
                 // find start of range
                 let mut chars = buf.text.chars(range.start)
                     .rev()
@@ -89,7 +89,7 @@ impl TextObject {
             },
             TextObject::Block(open_char) => {
                 println!("---");
-                let mut range = buf.cursor_index..buf.cursor_index;
+                let mut range = cursor_index..cursor_index;
 
                 let mut chars = buf.text.chars(range.start).rev().peekable();
                 while chars.peek().map(|cc| cc != open_char).unwrap_or(false) {
@@ -256,17 +256,17 @@ impl Motion {
         })
     }
 
-    pub fn range(&self, buf: &Buffer, multiplier: usize) -> Range<usize> {
-        let mut range = buf.cursor_index..buf.cursor_index;
+    pub fn range(&self, buf: &Buffer, cursor_index: usize, multiplier: usize) -> Range<usize> {
         match &self.mo {
             MotionType::An(obj) => {
-                return obj.range(buf, self.count * multiplier, true);
+                return obj.range(buf, cursor_index, self.count * multiplier, true);
             },
             MotionType::Inner(obj) => {
-                return obj.range(buf, self.count * multiplier, false);
+                return obj.range(buf, cursor_index, self.count * multiplier, false);
             },
             _ => {}
         };
+        let mut range = cursor_index..cursor_index;
         for _ in 0..(self.count * multiplier) {
             match &self.mo {
                 MotionType::Char(Direction::Forward) => { range.end = (range.end+1).min(buf.text.len()); }
@@ -278,7 +278,7 @@ impl Motion {
                     };
                     // probably should unwrap to the end of the buffer
                     let line_len = buf.text.index_of('\n', new_line_index).unwrap_or(buf.text.len())-new_line_index;
-                    range.end = buf.current_column().min(line_len)+new_line_index;
+                    range.end = buf.column_for_index(cursor_index).min(line_len)+new_line_index;
                 },
                 MotionType::StartOfLine => {
                     range.end = buf.current_start_of_line(range.end);
@@ -444,8 +444,7 @@ mod tests {
 
     fn create_line_test_buffer() -> Buffer {
         let mut b = Buffer::with_text("abc\ndef\nghi\n");
-        b.cursor_index = b.next_line_index(b.cursor_index);
-        assert_eq!(b.cursor_index, 4);
+        assert_eq!(b.next_line_index(0), 4);
         b
     }
     fn create_word_test_buffer() -> Buffer {
@@ -459,7 +458,7 @@ mod tests {
             mo: MotionType::Char(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 1), 4..5);
+        assert_eq!(mo.range(&b, 0, 1), 4..5);
     }
 
     #[test]
@@ -470,7 +469,7 @@ mod tests {
             mo: MotionType::Line(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 1), 4..8);
+        assert_eq!(mo.range(&b, 0, 1), 4..8);
     }
 
     #[test]
@@ -480,7 +479,7 @@ mod tests {
             mo: MotionType::StartOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b, 1), 4..4);
+        assert_eq!(mo.range(&b, 0, 1), 4..4);
     }      
 
     #[test]
@@ -490,7 +489,7 @@ mod tests {
             mo: MotionType::EndOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b, 1), 4..7);
+        assert_eq!(mo.range(&b, 0, 1), 4..7);
     }      
 
     #[test]
@@ -500,24 +499,26 @@ mod tests {
             mo: MotionType::Line(Direction::Backward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 1), 4..0);
+        assert_eq!(mo.range(&b, 0, 1), 4..0);
     }
 
     fn run_repeated_test<'a>(b: &mut Buffer, mo: &Motion, 
                              correct_ends: impl Iterator<Item=&'a usize>, assert_msg: &str) {
+        let mut cix = 0;
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b, 1);
+            let r = mo.range(&b, cix, 1);
             assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
-            b.cursor_index = r.end;
+            cix = r.end;
         }
     }
 
     fn run_repeated_test_then_offset<'a>(b: &mut Buffer, mo: &Motion, 
                                          correct_ends: impl Iterator<Item=&'a usize>, offset: isize, assert_msg: &str) {
+        let mut cix = 0;
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b, 1);
+            let r = mo.range(&b, cix, 1);
             assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
-            b.cursor_index = (r.end as isize + offset) as usize;
+            cix = (r.end as isize + offset) as usize;
         }
     }
 
@@ -645,73 +646,65 @@ mod tests {
     #[test]
     fn txo_object_a_word() {
         let mut b = Buffer::with_text(" word   w0rd wr+d");
-        b.cursor_index = 3;
         let mut mo = Motion {
             mo: MotionType::An(TextObject::Word), count: 1
         };
-        assert_eq!(mo.range(&b, 1), 1..7);
+        assert_eq!(mo.range(&b, 3, 1), 1..7);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..12);
+        assert_eq!(mo.range(&b, 3, 1), 1..12);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..14);
+        assert_eq!(mo.range(&b, 3, 1), 1..14);
 
-        b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b, 1), 5..11);
+        assert_eq!(mo.range(&b, 6, 1), 5..11);
     }
 
     #[test]
     fn txo_object_inner_word() {
         let mut b = Buffer::with_text(" word  word+ ");
-        b.cursor_index = 3;
         let mut mo = Motion {
             mo: MotionType::Inner(TextObject::Word), count: 1
         };
-        assert_eq!(mo.range(&b, 1), 1..4);
+        assert_eq!(mo.range(&b, 3, 1), 1..4);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..6);
+        assert_eq!(mo.range(&b, 3, 1), 1..6);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..10);
+        assert_eq!(mo.range(&b, 3, 1), 1..10);
 
-        b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b, 1), 5..6);
+        assert_eq!(mo.range(&b, 6, 1), 5..6);
     }
 
     #[test]
     fn txo_object_a_bigword() {
         let mut b = Buffer::with_text(" wor+   w0rd wr+d");
-        b.cursor_index = 3;
         let mut mo = Motion {
             mo: MotionType::An(TextObject::BigWord), count: 1
         };
-        assert_eq!(mo.range(&b, 1), 1..7);
+        assert_eq!(mo.range(&b, 3, 1), 1..7);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..12);
+        assert_eq!(mo.range(&b, 3, 1), 1..12);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..16);
+        assert_eq!(mo.range(&b, 3, 1), 1..16);
 
-        b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b, 1), 5..11);
+        assert_eq!(mo.range(&b, 6, 1), 5..11);
     }
 
     #[test]
     fn txo_object_inner_bigword() {
         let mut b = Buffer::with_text(" w--d  w--d+ ");
-        b.cursor_index = 3;
         let mut mo = Motion {
             mo: MotionType::Inner(TextObject::BigWord), count: 1
         };
-        assert_eq!(mo.range(&b, 1), 1..4);
+        assert_eq!(mo.range(&b, 3, 1), 1..4);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..6);
+        assert_eq!(mo.range(&b, 3, 1), 1..6);
         mo.count += 1;
-        assert_eq!(mo.range(&b, 1), 1..12); // this doesn't quite agree with Vim, but it seems questionable either way
+        assert_eq!(mo.range(&b, 3, 1), 1..12); // this doesn't quite agree with Vim, but it seems questionable either way
 
-        b.cursor_index = 6;
         mo.count = 1;
-        assert_eq!(mo.range(&b, 1), 5..6);
+        assert_eq!(mo.range(&b, 6, 1), 5..6);
     }
 
     #[test]
@@ -721,22 +714,23 @@ mod tests {
             mo: MotionType::An(TextObject::Block('<')), count: 1
         };
 
-        assert_eq!(mo.range(&b, 1), 0..20, "on <");
-        b.cursor_index += 3;
-        assert_eq!(mo.range(&b, 1), 0..20, "in <");
+        let mut cursor_index = 0;
+        assert_eq!(mo.range(&b, cursor_index, 1), 0..20, "on <");
+        cursor_index += 3;
+        assert_eq!(mo.range(&b, cursor_index, 1), 0..20, "in <");
 
-        b.cursor_index = 1;
+        cursor_index = 1;
         mo.mo = MotionType::An(TextObject::Block('('));
-        assert_eq!(mo.range(&b, 1), 1..9, "on first (");
-        b.cursor_index += 2;
-        assert_eq!(mo.range(&b, 1), 1..9, "in first (");
+        assert_eq!(mo.range(&b, cursor_index, 1), 1..9, "on first (");
+        cursor_index += 2;
+        assert_eq!(mo.range(&b, cursor_index, 1), 1..9, "in first (");
 
-        b.cursor_index += 2;
-        assert_eq!(mo.range(&b, 1), 4..6, "in nested (");
+        cursor_index += 2;
+        assert_eq!(mo.range(&b, cursor_index, 1), 4..6, "in nested (");
 
-        b.cursor_index = 15;
+        cursor_index = 15;
         mo.mo = MotionType::An(TextObject::Block('{'));
-        assert_eq!(mo.range(&b, 1), 11..19, "in {{");
+        assert_eq!(mo.range(&b, cursor_index, 1), 11..19, "in {{");
     }
 
     #[test]
@@ -746,22 +740,23 @@ mod tests {
             mo: MotionType::Inner(TextObject::Block('<')), count: 1
         };
 
-        assert_eq!(mo.range(&b, 1), 1..19, "on <");
-        b.cursor_index += 3;
-        assert_eq!(mo.range(&b, 1), 1..19, "in <");
+        let mut cursor_index = 0;
+        assert_eq!(mo.range(&b, cursor_index, 1), 1..19, "on <");
+        cursor_index += 3;
+        assert_eq!(mo.range(&b, cursor_index, 1), 1..19, "in <");
 
-        b.cursor_index = 1;
+        cursor_index = 1;
         mo.mo = MotionType::Inner(TextObject::Block('('));
-        assert_eq!(mo.range(&b, 1), 2..8, "on first (");
-        b.cursor_index += 2;
-        assert_eq!(mo.range(&b, 1), 2..8, "in first (");
+        assert_eq!(mo.range(&b, cursor_index, 1), 2..8, "on first (");
+        cursor_index += 2;
+        assert_eq!(mo.range(&b, cursor_index, 1), 2..8, "in first (");
 
-        b.cursor_index += 2;
-        assert_eq!(mo.range(&b, 1), 5..5, "in nested (");
+        cursor_index += 2;
+        assert_eq!(mo.range(&b, cursor_index, 1), 5..5, "in nested (");
 
-        b.cursor_index = 15;
+        cursor_index = 15;
         mo.mo = MotionType::Inner(TextObject::Block('{'));
-        assert_eq!(mo.range(&b, 1), 12..18, "in {{");
+        assert_eq!(mo.range(&b, cursor_index, 1), 12..18, "in {{");
     }
 
 

@@ -50,10 +50,11 @@ impl UserMessage {
 }
 
 
+#[derive(Clone)]
 pub enum PaneContent {
     Empty,
     Buffer {
-        buffer_index: usize,
+        buffer_index: usize
     }
 }
 
@@ -66,7 +67,7 @@ pub struct Pane {
     pub bounds: Rect,
 
     // [ left, right, top, bottom ]
-    pub neighbors: [Option<usize>; 4]
+    pub neighbors: [Option<usize>; 4],
 }
 
 fn split_rect(rect: Rect, dir: bool, size: f32) -> (Rect, Rect) {
@@ -85,7 +86,7 @@ impl Pane {
         Pane {
             content,
             bounds: Rect::xywh(0.0, 0.0, 1.0, 1.0),
-            neighbors: [None, None, None, None]
+            neighbors: [None, None, None, None],
         }
     }
 
@@ -107,7 +108,7 @@ impl Pane {
         panes.push(Pane {
             content: new_content,
             bounds: b,
-            neighbors: nb
+            neighbors: nb,
         });
         ix
     }
@@ -164,10 +165,28 @@ impl EditorState {
         &mut self.panes[self.current_pane]
     }
 
+    pub fn current_buffer_index(&self) -> Option<usize> {
+        match self.current_pane().content {
+            PaneContent::Buffer { buffer_index: ix, .. } => {
+                Some(ix)
+            },
+            _ => None
+        }
+    }
+
     pub fn current_buffer(&self) -> Option<&Buffer> {
         match self.current_pane().content {
             PaneContent::Buffer { buffer_index: ix, .. } => {
                 Some(&self.buffers[ix])
+            },
+            _ => None
+        }
+    }
+
+    pub fn current_buffer_mut(&mut self) -> Option<&mut Buffer> {
+        match self.current_pane().content {
+            PaneContent::Buffer { buffer_index: ix, .. } => {
+                Some(&mut self.buffers[ix])
             },
             _ => None
         }

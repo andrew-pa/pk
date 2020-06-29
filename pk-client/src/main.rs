@@ -137,8 +137,8 @@ impl runic::App for PkApp {
 
         state.panes.push(Pane::whole_screen(PaneContent::Empty));
         Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);
-        Pane::split(&mut state.panes, 0, false, 0.5, PaneContent::Empty);
-        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);
+        /*Pane::split(&mut state.panes, 0, false, 0.5, PaneContent::Empty);
+        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);*/
 
         let state = Arc::new(RwLock::new(state));
         if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
@@ -234,9 +234,10 @@ impl runic::App for PkApp {
                     rx.stroke_rect(Rect::xywh(x-2f32, y-1.0, rx.bounds().w-12f32, sy-y + 1.0), 2.0);
                 }
             }
-            rx.fill_rect(Rect::xywh(0.0, y - 8.0, rx.bounds().w, 1.0));
-            y 
-        } else { rx.bounds().h } - 8.0;
+            y -= 8.0;
+            rx.fill_rect(Rect::xywh(0.0, y, rx.bounds().w, 1.0));
+            y
+        } else { rx.bounds().h };
 
         let screen_bounds = Rect::xywh(0.0, 0.0, rx.bounds().w, usrmsg_y);
 
@@ -261,8 +262,8 @@ impl runic::App for PkApp {
                     rx.set_color(state.config.colors.quarter_gray);
                     rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
                     rx.set_color(state.config.colors.accent[1]);
-                    rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 2.0, rx.bounds().w, 1000.0),
-                        &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.current_column(),
+                    rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 2.0, bounds.w, 1000.0),
+                        &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.column_for_index(buf.cursor_index),
                             buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
                             if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
                     ), &self.fnt);

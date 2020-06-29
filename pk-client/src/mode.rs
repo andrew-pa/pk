@@ -87,9 +87,12 @@ impl Mode for NormalMode {
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new(state)))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
-                                let cb = state.current_buffer;
-                                let buf = &mut state.buffers[cb];
-                                Ok(Some(Box::new(InsertMode::new(buf.text.insert_mutator(buf.cursor_index))))) 
+                                if let PaneContent::Buffer { buffer_index } = state.current_pane().content {
+                                    let buf = &mut state.buffers[buffer_index];
+                                    Ok(Some(Box::new(InsertMode::new(buf.text.insert_mutator(buf.cursor_index))))) 
+                                } else {
+                                    Err(Error::InvalidCommand("".into()))
+                                }
                             },
                             _ => panic!("unknown mode: {:?}", res)
                         }
@@ -138,55 +141,56 @@ impl Mode for InsertMode {
 
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
-        let cb = state.current_buffer;
         let (softtab, tabstop) = (state.config.softtab, state.config.tabstop);
-        let buf = &mut state.buffers[cb];
-        match e {
-            Event::ReceivedCharacter(c) if !c.is_control() => {
-                self.tmut.push_char(&mut buf.text, c);
-                buf.cursor_index += 1;
-                Ok(None)
-            },
-            Event::ModifiersChanged(ms) => {
-                self.shift_pressed = ms.shift();
-                Ok(None)
-            },
-            Event::KeyboardInput {
-                input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, ..
-            } => {
-                match vk {
-                    VirtualKeyCode::Tab => {
-                        if softtab || !self.shift_pressed {
-                            for _ in 0..tabstop {
-                                self.tmut.push_char(&mut buf.text, ' ');
+        if let PaneContent::Buffer { buffer_index } = state.current_pane().content {
+            let buf = &mut state.buffers[buffer_index];
+            match e {
+                Event::ReceivedCharacter(c) if !c.is_control() => {
+                    self.tmut.push_char(&mut buf.text, c);
+                    buf.cursor_index += 1;
+                    Ok(None)
+                },
+                Event::ModifiersChanged(ms) => {
+                    self.shift_pressed = ms.shift();
+                    Ok(None)
+                },
+                Event::KeyboardInput {
+                    input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, ..
+                } => {
+                    match vk {
+                        VirtualKeyCode::Tab => {
+                            if softtab || !self.shift_pressed {
+                                for _ in 0..tabstop {
+                                    self.tmut.push_char(&mut buf.text, ' ');
+                                }
+                                buf.cursor_index += tabstop;
+                            } else {
+                                self.tmut.push_char(&mut buf.text, '\t');
+                                buf.cursor_index += 1;
                             }
-                            buf.cursor_index += tabstop;
-                        } else {
-                            self.tmut.push_char(&mut buf.text, '\t');
+                            Ok(None)
+                        },
+                        VirtualKeyCode::Back => {
+                            if !self.tmut.pop_char(&mut buf.text) {
+                                buf.cursor_index -= 1;
+                            }
+                            Ok(None)
+                        },
+                        VirtualKeyCode::Return => {
+                            self.tmut.push_char(&mut buf.text, '\n');
                             buf.cursor_index += 1;
+                            Ok(None)
                         }
-                        Ok(None)
-                    },
-                    VirtualKeyCode::Back => {
-                        if !self.tmut.pop_char(&mut buf.text) {
-                            buf.cursor_index -= 1;
-                        }
-                        Ok(None)
-                    },
-                    VirtualKeyCode::Return => {
-                        self.tmut.push_char(&mut buf.text, '\n');
-                        buf.cursor_index += 1;
-                        Ok(None)
+                        VirtualKeyCode::Escape => {
+                            self.tmut.finish(&mut buf.text);
+                            Ok(Some(Box::new(NormalMode::new())))
+                        },
+                        _ => Ok(None)
                     }
-                    VirtualKeyCode::Escape => {
-                        self.tmut.finish(&mut buf.text);
-                        Ok(Some(Box::new(NormalMode::new())))
-                    },
-                    _ => Ok(None)
-                }
-            },
-            _ => Ok(None)
-        }
+                },
+                _ => Ok(None)
+            }
+        } else { panic!(); }
     }
 }
 
