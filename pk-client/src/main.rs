@@ -11,6 +11,7 @@ mod line_command;
 mod server;
 mod editor_state;
 mod config;
+mod syntax_highlight;
 
 use runic::*;
 use pk_common::*;
@@ -62,8 +63,14 @@ impl Error {
     }
 }
 
+/*
+ *  main -[new buffer text]> syntax highlighter
+ *              |
+ *  main <[highlights     ]- syntax highlighter
+ */
+
 fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
-    use regex::{Regex, Captures};
+    /*use regex::{Regex, Captures};
     use piece_table_render::Highlight;
     use config::ColorschemeSel;
     let syni: Vec<(Regex, Box<dyn Fn(regex::Captures) -> Highlight>)> = vec![
@@ -76,7 +83,25 @@ fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
     ];
     let mut hi: Vec<_> = syni.iter().flat_map(|(r, f)| r.captures_iter(s).map(f)).collect();
     hi.sort_unstable_by(|a, b| a.range.start.cmp(&b.range.start));
-    Some(hi)
+    Some(hi)*/
+
+    use syntax_highlight::*;
+    use regex::Regex;
+    use config::ColorschemeSel;
+
+    let sr = SyntaxRules {
+        highlight_rules: vec![
+            (LexicalItemType::Keyword, HighlightRule::Keyword("fn".into())),
+            (LexicalItemType::Keyword, HighlightRule::Keyword("pub".into())),
+            (LexicalItemType::Keyword, HighlightRule::Keyword("let".into())),
+            (LexicalItemType::Keyword, HighlightRule::Keyword("for".into())),
+        ]
+    };
+
+    let mut cm = std::collections::HashMap::new();
+    cm.insert(LexicalItemType::Keyword, ColorschemeSel::Accent(0));
+
+    Some(sr.apply(s.as_str(), &cm))
 }
 
 
@@ -86,7 +111,8 @@ struct PkApp {
     cmd_txr: PieceTableRenderer,
     mode: Box<dyn Mode>,
     state: PEditorState,
-    synh: Option<Vec<piece_table_render::Highlight>>
+    synh: Option<Vec<piece_table_render::Highlight>>,
+    last_highlighted_version: usize
 }
 
 impl runic::App for PkApp {
@@ -133,19 +159,19 @@ impl runic::App for PkApp {
         cmd_txr.highlight_line = false;
         PkApp {
             mode: Box::new(mode::CommandMode::new(state.clone())),
-            fnt, txr, cmd_txr, state, synh: None
+            fnt, txr, cmd_txr, state, synh: None, last_highlighted_version: 0
         }
     }
 
     fn event(&mut self, e: runic::Event, event_loop_flow: &mut ControlFlowOpts, should_redraw: &mut bool) {
         if let Event::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, .. }, .. } = e {
             *should_redraw = true;
-            self.synh = None;
         }
         if { self.state.read().unwrap().force_redraw } {
             *should_redraw = true;
             self.state.write().unwrap().force_redraw = false;
         }
+
         match e {
             Event::CloseRequested => *event_loop_flow = ControlFlowOpts::Exit,
             _ => {
@@ -219,27 +245,29 @@ impl runic::App for PkApp {
             rx.fill_rect(Rect::xywh(0.0, 0.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.accent[1]);
             rx.draw_text(Rect::xywh(8.0, 2.0, rx.bounds().w, 1000.0),
-                &format!("{} / ln {} col {} / {}:{} v{}{}", self.mode, curln, buf.current_column(),
+                &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.current_column(),
                 buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
-                if buf.currently_in_conflict { "⮾" } else { "" }
+                if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
                 ), &self.fnt);
 
             self.txr.cursor_style = self.mode.cursor_style();
             self.txr.ensure_line_visible(curln, editor_bounds);
-            if self.synh.is_none() {
+            if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
+                let hstart = std::time::Instant::now();
                 self.synh = compute_highlight(&buf.text.text());
+                self.last_highlighted_version = buf.text.most_recent_action_id();
+                println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
             }
-            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, None);
+            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, self.synh.as_ref());
 
-
-            let mut y = 30.0;
+            /*let mut y = 30.0;
             let mut global_index = 0;
             for p in buf.text.pieces.iter() {
                 rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
                                   &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
                 global_index += p.length;
                 y += 16.0;
-            }
+            }*/
         } else {
             rx.set_color(state.config.colors.accent[5]);
             rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 

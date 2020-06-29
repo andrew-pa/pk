@@ -73,7 +73,19 @@ mod filetype_table {
     }
 
     impl FileTypeTable {
-        fn analyze(&self, path: impl AsRef<Path>) -> super::protocol::FileType {
+        pub fn analyze(&self, path: impl AsRef<Path>) -> super::protocol::FileType {
+            use super::protocol::FileType;
+            match path.as_ref().extension().and_then(|oss| oss.to_str()) {
+                Some(ext) => {
+                    for ft in self.filetype.iter() {
+                        if ft.ext.iter().any(|x| ext == x) {
+                            return FileType::from(ft.name.as_str());
+                        }
+                    }
+                    FileType::default()
+                },
+                None => FileType::default()
+            }
         }
     }
 }
@@ -86,29 +98,29 @@ struct File {
     path: Option<PathBuf>,
     contents: String,
     current_version: usize,
-    format: protocol::TextFormat
+    format: protocol::TextFormat,
 }
 
 impl File {
-    fn analyze_file_for_type(filetype_table: &FileTypeTable, path: impl AsRef<Path>, cnt: impl AsRef<str>) -> protocol::FileType {
-        protocol::FileType::from("text")
-    }
 
     fn from_path<P: AsRef<Path>>(p: P, filetype_table: &FileTypeTable) -> Result<File, ServerError> {
-        let path = Some({ let mut pa = PathBuf::new(); pa.push(&p); pa });
-        let mut contents = match std::fs::read_to_string(p) {
+        let path = p.as_ref().to_owned();
+        let mut contents = match std::fs::read_to_string(&path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(ServerError::IoError(e))
         };
-        let fmt = protocol::TextFormat::from_analysis(&contents);
+        let fmt = protocol::TextFormat {
+            line_ending: protocol::LineEnding::from_analysis(&contents),
+            stype: filetype_table.analyze(&path)
+        };
         if fmt.line_ending == protocol::LineEnding::CRLF {
             contents = contents.replace("\r\n", "\n");
         }
         Ok(File {
             format: fmt,
-            path, contents,
-            current_version: 0
+            path: Some(path), contents,
+            current_version: 0,
         })
     }
 
@@ -184,7 +196,13 @@ impl Server {
                     .ok_or_else(|| ServerError::BadFileId(id))?
                     .write_to_disk()?;
                 Ok(Response::Ack)
-            }
+            },
+            Request::DoStuffThatTakesAwhile => {
+                println!("doing stuff");
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                println!("done with stuff");
+                Ok(Response::Ack)
+            },
             _ => Err(ServerError::UnknownMessage)
         }
     }

@@ -37,6 +37,13 @@ pub mod protocol {
     }
 
     impl LineEnding {
+        pub fn from_analysis(s: &str) -> LineEnding {
+            s.find('\n')
+                .and_then(|i| s.chars().nth(i.saturating_sub(1)))
+                .map(|c| if c == '\r' { LineEnding::CRLF } else { LineEnding::LF })
+                .unwrap_or(LineEnding::default())
+        }
+
         pub fn as_str(&self) -> &'static str {
             match self {
                 &LineEnding::LF => "\n",
@@ -44,28 +51,17 @@ pub mod protocol {
             }
         }
     }
-
-    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
-    pub struct TextFormat {
-        pub line_ending: LineEnding
-    }
-
-    impl TextFormat {
-        pub fn from_analysis(s: &str) -> TextFormat {
-            let line_ending =
-                s.find('\n')
-                .and_then(|i| s.chars().nth(i.saturating_sub(1)))
-                .map(|c| if c == '\r' { LineEnding::CRLF } else { LineEnding::LF })
-                .unwrap_or(LineEnding::default());
-            TextFormat {
-                line_ending
-            }
-        }
-    }
-
-    #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Clone)]
+    #[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
     pub struct FileType {
         data: [u8; 4]
+    }
+
+    impl Default for FileType {
+        fn default() -> Self {
+            FileType {
+                data: [b't', b'e', b'x', b't']
+            }
+        }
     }
 
     impl From<&str> for FileType {
@@ -73,6 +69,14 @@ pub mod protocol {
             assert!(s.len() >= 4);
             let b = s.as_bytes();
             FileType { data: [b[0], b[1], b[2], b[3]] }
+        }
+    }
+
+    impl std::fmt::Display for FileType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            unsafe {
+                write!(f, "{}", std::str::from_utf8_unchecked(&self.data))
+            }
         }
     }
 
@@ -84,13 +88,20 @@ pub mod protocol {
         }
     }
 
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
+    pub struct TextFormat {
+        pub line_ending: LineEnding,
+        pub stype: FileType
+    }
+
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Request {
         /* files */
         OpenFile { path: std::path::PathBuf },
         SyncFile { id: FileId, new_text: String, version: usize },
         ReloadFile(FileId),
-        CloseFile(FileId)
+        CloseFile(FileId),
+        DoStuffThatTakesAwhile
     }
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -109,7 +120,12 @@ pub mod protocol {
             server_version: usize,
             server_text: String
         },
-        FileInfo { id: FileId, contents: String, version: usize, format: TextFormat },
+        FileInfo {
+            id: FileId,
+            contents: String,
+            version: usize,
+            format: TextFormat
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug)]

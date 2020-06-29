@@ -146,7 +146,8 @@ impl PieceTableRenderer {
                     ly
                 };
                 rx.draw_text_layout(cur_pos, &layout);
-                if cursor_index >= global_index && cursor_index <= global_index+ln.len() {
+                if cursor_index >= global_index && cursor_index < global_index+ln.len() ||
+                    (lni.peek().is_some() && cursor_index == global_index+ln.len()) {
                     let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);
                     self.cursor_style.paint(rx, &curbounds, &self.em_bounds);
                     if self.highlight_line {
