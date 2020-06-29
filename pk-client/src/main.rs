@@ -136,9 +136,6 @@ impl runic::App for PkApp {
         }
 
         state.panes.push(Pane::whole_screen(PaneContent::Empty));
-        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);
-        /*Pane::split(&mut state.panes, 0, false, 0.5, PaneContent::Empty);
-        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);*/
 
         let state = Arc::new(RwLock::new(state));
         if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
@@ -261,7 +258,7 @@ impl runic::App for PkApp {
                     // draw status line
                     rx.set_color(state.config.colors.quarter_gray);
                     rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
-                    rx.set_color(state.config.colors.accent[1]);
+                    rx.set_color(if active { state.config.colors.accent[1] } else { state.config.colors.three_quarter_gray });
                     rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 2.0, bounds.w, 1000.0),
                         &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.column_for_index(buf.cursor_index),
                             buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
@@ -270,13 +267,13 @@ impl runic::App for PkApp {
 
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
                     self.txr.ensure_line_visible(curln, editor_bounds);
-                    if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
+                    /*if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
                         let hstart = std::time::Instant::now();
                         self.synh = compute_highlight(&buf.text.text());
                         self.last_highlighted_version = buf.text.most_recent_action_id();
                         println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
-                    }
-                    self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, self.synh.as_ref());
+                    }*/
+                    self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, None);
                 },
                 PaneContent::Empty => {
                     rx.set_color(state.config.colors.accent[5]);
@@ -299,7 +296,8 @@ impl runic::App for PkApp {
             rx.set_color(state.config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.three_quarter_gray);
-            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config, Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
+            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config,
+                               Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
         }
 
         let end = std::time::Instant::now();

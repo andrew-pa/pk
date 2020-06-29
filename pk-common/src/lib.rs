@@ -101,7 +101,6 @@ pub mod protocol {
         SyncFile { id: FileId, new_text: String, version: usize },
         ReloadFile(FileId),
         CloseFile(FileId),
-        DoStuffThatTakesAwhile
     }
 
     #[derive(Serialize, Deserialize, Debug)]

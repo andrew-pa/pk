@@ -52,12 +52,21 @@ impl Mode for NormalMode {
                     },
                     VirtualKeyCode::Left => {
                         let mut state = state.write().unwrap();
-                        state.current_buffer = state.current_buffer.saturating_sub(1);
+                        match &mut state.current_pane_mut().content {
+                            PaneContent::Buffer { buffer_index } => 
+                                *buffer_index = buffer_index.saturating_sub(1),
+                            _ => {}
+                        }
                         Ok(None)
                     },
                     VirtualKeyCode::Right => {
                         let mut state = state.write().unwrap();
-                        state.current_buffer = (state.current_buffer + 1).min(state.buffers.len()-1);
+                        let numbufs = state.buffers.len();
+                        match &mut state.current_pane_mut().content {
+                            PaneContent::Buffer { buffer_index } => 
+                                *buffer_index = (*buffer_index + 1).min(numbufs.saturating_sub(1)),
+                            _ => {}
+                        }
                         Ok(None)
                     }
                     VirtualKeyCode::E if self.ctrl_pressed => {

@@ -197,12 +197,6 @@ impl Server {
                     .write_to_disk()?;
                 Ok(Response::Ack)
             },
-            Request::DoStuffThatTakesAwhile => {
-                println!("doing stuff");
-                std::thread::sleep(std::time::Duration::from_secs(60));
-                println!("done with stuff");
-                Ok(Response::Ack)
-            },
             _ => Err(ServerError::UnknownMessage)
         }
     }
