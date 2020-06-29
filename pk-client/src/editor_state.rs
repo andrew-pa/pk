@@ -49,9 +49,76 @@ impl UserMessage {
     }
 }
 
+
+pub enum PaneContent {
+    Empty,
+    Buffer {
+        buffer_index: usize,
+    }
+}
+
+use runic::Rect;
+
+pub struct Pane {
+    pub content: PaneContent,
+
+    // in units of 0..1 where 0 is the top/left edge of the screen and 1 is the bottom/right edge
+    pub bounds: Rect,
+
+    // [ left, right, top, bottom ]
+    pub neighbors: [Option<usize>; 4]
+}
+
+fn split_rect(rect: Rect, dir: bool, size: f32) -> (Rect, Rect) {
+    let inv_size = 1.0 - size;
+    if dir {
+        (Rect::xywh(rect.x, rect.y, rect.w * inv_size, rect.h),
+         Rect::xywh(rect.x + rect.w*inv_size, rect.y, rect.w * size, rect.h))
+    } else {
+        (Rect::xywh(rect.x, rect.y, rect.w, rect.h*inv_size),
+         Rect::xywh(rect.x, rect.y + rect.h*inv_size, rect.w, rect.h*size))
+    }
+}
+
+impl Pane {
+    pub fn whole_screen(content: PaneContent) -> Pane {
+        Pane {
+            content,
+            bounds: Rect::xywh(0.0, 0.0, 1.0, 1.0),
+            neighbors: [None, None, None, None]
+        }
+    }
+
+    // split always places `new_content to the right and below `index`
+    pub fn split(panes: &mut Vec<Pane>, index: usize, direction: bool, size: f32, new_content: PaneContent) -> usize {
+        let ix = panes.len();
+        let this = &mut panes[index];
+        let (a, b) = split_rect(this.bounds, direction, size);
+        this.bounds = a;
+        let nb = if direction {
+            let n = this.neighbors[1];
+            this.neighbors[1] = Some(ix);
+            [Some(index), n, this.neighbors[2], this.neighbors[3]]
+        } else {
+            let n = this.neighbors[2];
+            this.neighbors[3] = Some(ix);
+            [this.neighbors[0], this.neighbors[1], Some(index), n]
+        };
+        panes.push(Pane {
+            content: new_content,
+            bounds: b,
+            neighbors: nb
+        });
+        ix
+    }
+}
+
+
 pub struct EditorState {
-    pub buffers: Vec<Buffer>,
+    pub buffers: Vec<Buffer>, 
     pub current_buffer: usize,
+    pub panes: Vec<Pane>,
+    pub current_pane: usize,
     pub registers: HashMap<char, String>,
     pub command_line: Option<(usize, PieceTable)>,
     pub thread_pool: futures::executor::ThreadPool,
@@ -76,6 +143,8 @@ impl EditorState {
         EditorState {
             buffers: Vec::new(),
             current_buffer: 0,
+            panes: Vec::new(),
+            current_pane: 0,
             registers: HashMap::new(),
             command_line: None,
             thread_pool: ThreadPoolBuilder::new().create().unwrap(),
@@ -84,6 +153,23 @@ impl EditorState {
             usrmsgs: Vec::new(),
             selected_usrmsg: 0,
             config
+        }
+    }
+
+    pub fn current_pane(&self) -> &Pane {
+        &self.panes[self.current_pane]
+    }
+
+    pub fn current_pane_mut(&mut self) -> &mut Pane {
+        &mut self.panes[self.current_pane]
+    }
+
+    pub fn current_buffer(&self) -> Option<&Buffer> {
+        match self.current_pane().content {
+            PaneContent::Buffer { buffer_index: ix, .. } => {
+                Some(&self.buffers[ix])
+            },
+            _ => None
         }
     }
 

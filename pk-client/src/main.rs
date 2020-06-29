@@ -86,7 +86,7 @@ fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
     Some(hi)*/
 
     use syntax_highlight::*;
-    use regex::Regex;
+    
     use config::ColorschemeSel;
 
     let sr = SyntaxRules {
@@ -135,6 +135,11 @@ impl runic::App for PkApp {
             state.process_usr_msg(em);
         }
 
+        state.panes.push(Pane::whole_screen(PaneContent::Empty));
+        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);
+        Pane::split(&mut state.panes, 0, false, 0.5, PaneContent::Empty);
+        Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Empty);
+
         let state = Arc::new(RwLock::new(state));
         if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
             EditorState::connect_to_server(state.clone(), "cmdln".into(), &url);
@@ -153,8 +158,9 @@ impl runic::App for PkApp {
 
         let fnt = rx.new_font(&config.font.0, config.font.1,
                               FontWeight::Regular, FontStyle::Normal).unwrap();
-        let txr = PieceTableRenderer::init(rx, fnt.clone());
-        let mut cmd_txr = PieceTableRenderer::init(rx, fnt.clone());
+        let em_bounds = rx.new_text_layout("M", &fnt, 100.0, 100.0).expect("create em size layout").bounds();
+        let txr = PieceTableRenderer::init(rx, fnt.clone(), em_bounds);
+        let mut cmd_txr = PieceTableRenderer::init(rx, fnt.clone(), em_bounds);
         cmd_txr.cursor_style = CursorStyle::Line;
         cmd_txr.highlight_line = false;
         PkApp {
@@ -232,47 +238,61 @@ impl runic::App for PkApp {
             y 
         } else { rx.bounds().h } - 8.0;
 
+        let screen_bounds = Rect::xywh(0.0, 0.0, rx.bounds().w, usrmsg_y);
 
-        if state.buffers.len() > 0 {
-            let buf = &state.buffers[state.current_buffer];
+        for (i, p) in state.panes.iter().enumerate() {
+            let bounds = Rect::xywh(screen_bounds.x + screen_bounds.w * p.bounds.x + 1.0,
+                                    screen_bounds.y + screen_bounds.h * p.bounds.y + 1.0,
+                                    screen_bounds.w * p.bounds.w - 1.0, screen_bounds.h * p.bounds.h - 1.0);
 
-            let editor_bounds = Rect::xywh(8.0, self.txr.em_bounds.h+4.0, rx.bounds().w, usrmsg_y);
+            let active = i == state.current_pane;
 
-            let curln = buf.line_for_index(buf.cursor_index);
+            rx.set_color(if active { state.config.colors.half_gray } else { state.config.colors.quarter_gray });
+            rx.stroke_rect(bounds, 1.0);
 
-            // draw status line
-            rx.set_color(state.config.colors.quarter_gray);
-            rx.fill_rect(Rect::xywh(0.0, 0.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
-            rx.set_color(state.config.colors.accent[1]);
-            rx.draw_text(Rect::xywh(8.0, 2.0, rx.bounds().w, 1000.0),
-                &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.current_column(),
-                buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
-                if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
-                ), &self.fnt);
+            match p.content {
+                PaneContent::Buffer { buffer_index } => {
+                    let buf = &state.buffers[buffer_index];
+                    let editor_bounds = Rect::xywh(bounds.x, bounds.y + self.txr.em_bounds.h + 4.0, bounds.w,
+                                                       bounds.h);
+                    let curln = buf.line_for_index(buf.cursor_index);
 
-            self.txr.cursor_style = self.mode.cursor_style();
-            self.txr.ensure_line_visible(curln, editor_bounds);
-            if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
-                let hstart = std::time::Instant::now();
-                self.synh = compute_highlight(&buf.text.text());
-                self.last_highlighted_version = buf.text.most_recent_action_id();
-                println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
+                    // draw status line
+                    rx.set_color(state.config.colors.quarter_gray);
+                    rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
+                    rx.set_color(state.config.colors.accent[1]);
+                    rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 2.0, rx.bounds().w, 1000.0),
+                        &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.current_column(),
+                            buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
+                            if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
+                    ), &self.fnt);
+
+                    self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
+                    self.txr.ensure_line_visible(curln, editor_bounds);
+                    if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
+                        let hstart = std::time::Instant::now();
+                        self.synh = compute_highlight(&buf.text.text());
+                        self.last_highlighted_version = buf.text.most_recent_action_id();
+                        println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
+                    }
+                    self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, self.synh.as_ref());
+                },
+                PaneContent::Empty => {
+                    rx.set_color(state.config.colors.accent[5]);
+                    rx.draw_text(bounds.offset(Point::xy(self.txr.em_bounds.w, self.txr.em_bounds.h)), 
+                                 "enter a command to begin", &self.fnt);
+                }
             }
-            self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, self.synh.as_ref());
-
-            /*let mut y = 30.0;
-            let mut global_index = 0;
-            for p in buf.text.pieces.iter() {
-                rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
-                                  &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
-                global_index += p.length;
-                y += 16.0;
-            }*/
-        } else {
-            rx.set_color(state.config.colors.accent[5]);
-            rx.draw_text(Rect::xywh(80.0, rx.bounds().h/4.0, rx.bounds().w, rx.bounds().h-20.0), 
-                         "enter a command to begin", &self.fnt);
         }
+
+        /*let mut y = 30.0;
+          let mut global_index = 0;
+          for p in buf.text.pieces.iter() {
+          rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
+          &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
+          global_index += p.length;
+          y += 16.0;
+          }*/
 
         if let Some((cmd_cur_index, pending_cmd)) = state.command_line.as_ref() {
             rx.set_color(state.config.colors.quarter_gray);

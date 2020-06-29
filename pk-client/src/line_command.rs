@@ -32,9 +32,10 @@ impl CommandFn for EditFileCommand {
             match resp {
                 protocol::Response::FileInfo { id, contents, version, format } => {
                     let mut state = ess.write().unwrap();
-                    state.current_buffer = state.buffers.len();
+                    let buffer_index = state.buffers.len();
                     state.buffers.push(Buffer::from_server(String::from(server_name),
                         path, id, contents, version, format));
+                    state.current_pane_mut().content = PaneContent::Buffer { buffer_index };
                     state.force_redraw = true;
                 },
                 _ => panic!() 

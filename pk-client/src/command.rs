@@ -33,6 +33,7 @@ pub enum Command {
         mo: Motion,
         target_register: char,
     },
+    Leader(char),
     ChangeMode(ModeTag)
 }
 
@@ -110,6 +111,10 @@ impl Command {
                 source_register: target_reg.unwrap_or('"'),
                 clear_register: false
             }),
+            Some(' ') => { schars.next(); return match schars.next() {
+                Some(c) => Ok(Command::Leader(c)),
+                None => Err(Error::IncompleteCommand)
+            } },
             Some(_) => None,
             None => None
         };
@@ -230,8 +235,23 @@ impl Command {
                 }
             },
             &Command::ChangeMode(mode) => Ok(Some(mode)),
+            Command::Leader(c) => match c {
+                'h' | 'j' | 'k' | 'l' => {
+                    if let Some(ng) = state.current_pane().neighbors[match c {
+                        'h' => 0,
+                        'j' => 3,
+                        'k' => 2,
+                        'l' => 1,
+                        _ => unreachable!()
+                    }] {
+                        state.current_pane = ng;
+                    }
+                    Ok(None)
+                }
+                _ => Err(Error::UnknownCommand(format!("unknown leader command {}", c)))
+            },
 
-            _ => unimplemented!()
+            _ => Err(Error::UnknownCommand(format!("unimplemented {:?}", self)))
         }
     }
 }

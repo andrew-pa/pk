@@ -72,12 +72,11 @@ pub struct PieceTableRenderer {
 }
 
 impl PieceTableRenderer {
-    pub fn init(rx: &mut RenderContext, fnt: Font) -> Self {
-        let ml = rx.new_text_layout("M", &fnt, 100.0, 100.0).expect("create em size layout");
+    pub fn init(rx: &mut RenderContext, fnt: Font, em_bounds: Rect) -> Self {
         PieceTableRenderer {
             fnt,
             viewport_start: 0,
-            em_bounds: ml.bounds(),
+            em_bounds,
             cursor_style: CursorStyle::Underline,
             highlight_line: true,
             layout_cashe: HashMap::new()
