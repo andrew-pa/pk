@@ -260,6 +260,13 @@ impl Command {
                     Pane::split(&mut state.panes, state.current_pane, *c == 's', 0.5, nc);
                     Ok(None)
                 },
+                'x' => {
+                    if state.panes.len() == 1 {
+                        return Err(Error::InvalidCommand("can't delete all panes".into()));
+                    }
+                    state.current_pane = Pane::remove(&mut state.panes, state.current_pane);
+                    Ok(None)
+                },
                 _ => Err(Error::UnknownCommand(format!("unknown leader command {}", c)))
             },
 

@@ -1,5 +1,5 @@
 use std::sync::{Arc,RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use futures::prelude::*;
 use pk_common::*;
 use crate::server::Server;
@@ -50,7 +50,7 @@ impl UserMessage {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum PaneContent {
     Empty,
     Buffer {
@@ -60,6 +60,7 @@ pub enum PaneContent {
 
 use runic::Rect;
 
+#[derive(Debug, Clone)]
 pub struct Pane {
     pub content: PaneContent,
 
@@ -81,6 +82,16 @@ fn split_rect(rect: Rect, dir: bool, size: f32) -> (Rect, Rect) {
     }
 }
 
+fn opposite_neighbor(n: usize) -> usize {
+    match n {
+        0 => 1,
+        1 => 0,
+        2 => 3,
+        3 => 2,
+        _ => panic!()
+    }
+}
+
 impl Pane {
     pub fn whole_screen(content: PaneContent) -> Pane {
         Pane {
@@ -91,34 +102,210 @@ impl Pane {
     }
 
     // split always places `new_content to the right and below `index`
-    pub fn split(panes: &mut Vec<Pane>, index: usize, direction: bool, size: f32, new_content: PaneContent) -> usize {
-        let ix = panes.len();
-        let this = &mut panes[index];
+    pub fn split(panes: &mut BTreeMap<usize, Pane>, index: usize, direction: bool, size: f32, new_content: PaneContent) -> usize {
+        let ix = panes.keys().last().cloned().unwrap_or(0) + 1;
+        let mut this = panes.get(&index).cloned().unwrap();
         let (a, b) = split_rect(this.bounds, direction, size);
         this.bounds = a;
         let nb = if direction {
             let n = this.neighbors[1];
+            if let Some(nb) = n {
+                panes.get_mut(&nb).unwrap().neighbors[0] = Some(ix);
+            }
             this.neighbors[1] = Some(ix);
             [Some(index), n, this.neighbors[2], this.neighbors[3]]
         } else {
-            let n = this.neighbors[2];
+            let below = this.neighbors[3];
+            if let Some(nb) = below {
+                panes.get_mut(&nb).unwrap().neighbors[2] = Some(ix);
+            }
             this.neighbors[3] = Some(ix);
-            [this.neighbors[0], this.neighbors[1], Some(index), n]
+            [this.neighbors[0], this.neighbors[1], Some(index), below]
         };
-        panes.push(Pane {
+        panes.insert(index, this);
+        panes.insert(ix, Pane {
             content: new_content,
             bounds: b,
             neighbors: nb,
         });
         ix
     }
+
+    pub fn remove(panes: &mut BTreeMap<usize, Pane>, index: usize) -> usize {
+        if let Some(p) = panes.remove(&index) {
+            for (i, pn) in p.neighbors.iter().enumerate() {
+                if let Some(n) = pn.and_then(|ni| panes.get_mut(&ni)) {
+                    // can we reasonably resize this neghibor to fill the gap?
+                    if i < 2 { //horizontal
+                        if p.bounds.h == n.bounds.h {
+                            n.bounds.w += p.bounds.w; 
+                            n.bounds.x = n.bounds.x.min(p.bounds.x);
+                            let o = opposite_neighbor(i);
+                            n.neighbors[o] = p.neighbors[o];
+                            if let Some(on) = n.neighbors[o] {
+                                panes.get_mut(&on).unwrap().neighbors[i] = Some(pn.unwrap());
+                            }
+                            return pn.unwrap();
+                        }
+                    } else {
+                        if p.bounds.w == n.bounds.w {
+                            n.bounds.h += p.bounds.h; 
+                            n.bounds.y = n.bounds.y.min(p.bounds.y);
+                            let o = opposite_neighbor(i);
+                            n.neighbors[o] = p.neighbors[o];
+                            if let Some(on) = n.neighbors[o] {
+                                panes.get_mut(&on).unwrap().neighbors[i] = Some(pn.unwrap());
+                            }
+                            return pn.unwrap();
+                        }
+                    }
+                }
+            }
+        }
+        panic!();
+    }
 }
 
+#[cfg(test)]
+mod winman_test {
+    use std::collections::BTreeMap;
+    use super::{Pane,PaneContent};
+    #[test]
+    fn split_horiz() {
+        let mut panes = BTreeMap::new();
+        let ai = 0;
+        panes.insert(ai, Pane::whole_screen(PaneContent::Empty));
+        let bi = Pane::split(&mut panes, ai, true, 0.5, PaneContent::Empty);
+        // [a] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, Some(bi), None, None]);
+        assert_eq!(panes[&bi].neighbors, [Some(ai), None, None, None]);
+        let ci = Pane::split(&mut panes, ai, true, 0.5, PaneContent::Empty);
+        // [a] | [c] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, Some(ci), None, None], "a");
+        assert_eq!(panes[&ci].neighbors, [Some(ai), Some(bi), None, None], "c");
+        assert_eq!(panes[&bi].neighbors, [Some(ci), None, None, None], "b");
+        let di = Pane::split(&mut panes, ai, true, 0.5, PaneContent::Empty);
+        // [a] | [d] | [c] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, Some(di), None, None], "a");
+        assert_eq!(panes[&di].neighbors, [Some(ai), Some(ci), None, None], "d");
+        assert_eq!(panes[&ci].neighbors, [Some(di), Some(bi), None, None], "c");
+        assert_eq!(panes[&bi].neighbors, [Some(ci), None, None, None], "b");
+    } 
+
+    #[test]
+    fn split_vert() {
+        let mut panes = BTreeMap::new();
+        let ai = 0;
+        panes.insert(ai, Pane::whole_screen(PaneContent::Empty));
+        let bi = Pane::split(&mut panes, ai, false, 0.5, PaneContent::Empty);
+        // [a] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, None, None, Some(bi)]);
+        assert_eq!(panes[&bi].neighbors, [None, None, Some(ai), None]);
+        let ci = Pane::split(&mut panes, ai, false, 0.5, PaneContent::Empty);
+        // [a] | [c] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, None, None, Some(ci)], "a");
+        assert_eq!(panes[&ci].neighbors, [None, None, Some(ai), Some(bi)], "c");
+        assert_eq!(panes[&bi].neighbors, [None, None, Some(ci), None], "b");
+        let di = Pane::split(&mut panes, ai, false, 0.5, PaneContent::Empty);
+        // [a] | [d] | [c] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, None, None, Some(di)], "a");
+        assert_eq!(panes[&di].neighbors, [None, None, Some(ai), Some(ci)], "d");
+        assert_eq!(panes[&ci].neighbors, [None, None, Some(di), Some(bi)], "c");
+        assert_eq!(panes[&bi].neighbors, [None, None, Some(ci), None], "b");
+    }
+
+    #[test]
+    fn remove_horiz() {
+        let mut panes = BTreeMap::new();
+        let ai = 0;
+        panes.insert(ai, Pane::whole_screen(PaneContent::Empty));
+        let bi = Pane::split(&mut panes, ai, true, 0.5, PaneContent::Empty);
+        // [a] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, Some(bi), None, None]);
+        assert_eq!(panes[&bi].neighbors, [Some(ai), None, None, None]);
+        let ci = Pane::split(&mut panes, ai, true, 0.5, PaneContent::Empty);
+        // [a] | [c] | [b]
+        assert_eq!(panes[&ai].neighbors, [None, Some(ci), None, None], "a");
+        assert_eq!(panes[&ci].neighbors, [Some(ai), Some(bi), None, None], "c");
+        assert_eq!(panes[&bi].neighbors, [Some(ci), None, None, None], "b");
+
+        Pane::remove(&mut panes, ci);
+        assert_eq!(panes[&ai].neighbors, [None, Some(bi), None, None]);
+        assert_eq!(panes[&bi].neighbors, [Some(ai), None, None, None]);
+    }
+}
+
+// an alternative way to deal with managing Panes. The tradeoff: Splits are simpler for resizing/spliting but way more complex to navigate
+pub enum Split {
+    Intr {
+        direction: bool,
+        size: f32,
+        children: (Box<Split>, Box<Split>)
+    },
+    Leaf { content: PaneContent, active: bool }
+}
+
+impl Split {
+    fn split(self, direction: bool, size: f32, new_content: PaneContent) -> Split {
+        match self {
+            Split::Intr { children, direction, size } => Split::Intr {
+                children: (Box::new(children.0.split(direction,size,new_content.clone())),
+                            Box::new(children.1.split(direction,size,new_content))),
+                direction, size
+            },
+            Split::Leaf { content, active } if active => Split::Intr {
+                direction, size,
+                children: (Box::new(Split::Leaf { content, active: false }), Box::new(Split::Leaf { content: new_content, active: true })) 
+            },
+            Split::Leaf { .. } => self,
+        }
+    }
+
+    fn active_content(&self) -> &PaneContent {
+        fn acr(s: &Split) -> Option<&PaneContent> {
+            match s {
+                Split::Intr { children, .. } => acr(children.0.as_ref()).or_else(|| acr(children.1.as_ref())),
+                Split::Leaf { content, active } => if *active { Some(content) } else { None }
+            }
+        }
+        acr(self).expect("at least one pane must be active!")
+    }
+
+    fn active_content_mut(&mut self) -> &PaneContent {
+        fn acr(s: &mut Split) -> Option<&mut PaneContent> {
+            match s {
+                Split::Intr { children, .. } => acr(children.0.as_mut()).or(acr(children.1.as_mut())),
+                Split::Leaf { content, active } => if *active { Some(content) } else { None }
+            }
+        }
+        acr(self).expect("at least one pane must be active!")
+    }
+
+    /*fn move_right(&mut self) {
+        fn mv(s: &mut Split, parent: Option<&mut Split>) -> bool {
+            match s {
+                Split::Intr { children, .. } => mv(children.0.as_mut(), Some(s)) || mv(children.1.as_mut(), Some(s)),
+                Split::Leaf { content, active } => {
+                    if active {
+
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+        mv(self, None)
+    }*/
+
+
+    // fn left_neighbor(&self, splits: &BTreeMap<usize, Split>) -> &Split {
+    // }
+}
 
 pub struct EditorState {
     pub buffers: Vec<Buffer>, 
-    pub current_buffer: usize,
-    pub panes: Vec<Pane>,
+    pub panes: BTreeMap<usize, Pane>,
     pub current_pane: usize,
     pub registers: HashMap<char, String>,
     pub command_line: Option<(usize, PieceTable)>,
@@ -143,8 +330,7 @@ impl EditorState {
         use futures::executor::ThreadPoolBuilder;
         EditorState {
             buffers: Vec::new(),
-            current_buffer: 0,
-            panes: Vec::new(),
+            panes: BTreeMap::new(),
             current_pane: 0,
             registers: HashMap::new(),
             command_line: None,
@@ -158,11 +344,11 @@ impl EditorState {
     }
 
     pub fn current_pane(&self) -> &Pane {
-        &self.panes[self.current_pane]
+        &self.panes[&self.current_pane]
     }
 
     pub fn current_pane_mut(&mut self) -> &mut Pane {
-        &mut self.panes[self.current_pane]
+        self.panes.get_mut(&self.current_pane).unwrap()
     }
 
     pub fn current_buffer_index(&self) -> Option<usize> {
@@ -295,7 +481,10 @@ impl EditorState {
                                             state.buffers[buffer_index].currently_in_conflict = false;
                                         },
                                         2 => {
-                                            state.current_buffer = state.buffers.len();
+                                            let cp = state.current_pane;
+                                            let nbi = state.buffers.len();
+                                            Pane::split(&mut state.panes, cp, true, 0.5,
+                                                        PaneContent::Buffer { buffer_index: nbi });
                                             let p = state.buffers[buffer_index].path.clone();
                                             let f = state.buffers[buffer_index].format.clone();
                                             let server_name = state.buffers[buffer_index].server_name.clone();

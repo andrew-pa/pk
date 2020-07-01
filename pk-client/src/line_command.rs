@@ -63,8 +63,8 @@ impl CommandFn for BufferCommand {
 
         match a.name("subcmd").map(|m| m.as_str()) {
             None => {
-                if let Some((index, _score)) = bufs.get(0) {
-                    es.write().unwrap().current_buffer = *index;
+                if let Some((buffer_index, _score)) = bufs.get(0) {
+                    es.write().unwrap().current_pane_mut().content = PaneContent::Buffer { buffer_index: *buffer_index };
                     Ok(Some(Box::new(NormalMode::new())))
                 } else {
                     Err(Error::InvalidCommand(format!("no matching buffer for {}", name_query)))
@@ -107,7 +107,7 @@ pub struct SyncFileCommand;
 
 impl CommandFn for SyncFileCommand {
     fn process(&self, es: PEditorState, _: &regex::Captures) -> mode::ModeEventResult {
-        let cb = { es.read().unwrap().current_buffer };
+        let cb = { es.read().unwrap().current_buffer_index().ok_or_else(|| Error::InvalidCommand("no buffer to sync".into()))? };
         EditorState::sync_buffer(es, cb);
         Ok(Some(Box::new(NormalMode::new())))
     }

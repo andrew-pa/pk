@@ -135,13 +135,3 @@ pub mod protocol {
 
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn text_fmt_analysis() {
-        use super::protocol::*;
-        assert_eq!(TextFormat::from_analysis(""), TextFormat { line_ending: LineEnding::default() });
-        assert_eq!(TextFormat::from_analysis("asdf\n"), TextFormat { line_ending: LineEnding::LF });
-        assert_eq!(TextFormat::from_analysis("asdf\r\n"), TextFormat { line_ending: LineEnding::CRLF });
-    }
-}

@@ -135,7 +135,7 @@ impl runic::App for PkApp {
             state.process_usr_msg(em);
         }
 
-        state.panes.push(Pane::whole_screen(PaneContent::Empty));
+        state.panes.insert(0, Pane::whole_screen(PaneContent::Empty));
 
         let state = Arc::new(RwLock::new(state));
         if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
@@ -238,12 +238,12 @@ impl runic::App for PkApp {
 
         let screen_bounds = Rect::xywh(0.0, 0.0, rx.bounds().w, usrmsg_y);
 
-        for (i, p) in state.panes.iter().enumerate() {
+        for (i, p) in state.panes.iter() {
             let bounds = Rect::xywh(screen_bounds.x + screen_bounds.w * p.bounds.x + 1.0,
                                     screen_bounds.y + screen_bounds.h * p.bounds.y + 1.0,
                                     screen_bounds.w * p.bounds.w - 1.0, screen_bounds.h * p.bounds.h - 1.0);
 
-            let active = i == state.current_pane;
+            let active = *i == state.current_pane;
 
             rx.set_color(if active { state.config.colors.half_gray } else { state.config.colors.quarter_gray });
             rx.stroke_rect(bounds, 1.0);
