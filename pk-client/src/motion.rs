@@ -289,7 +289,7 @@ impl Motion {
                     }
                 },
                 MotionType::EndOfLine => {
-                    range.end = buf.next_line_index(range.end).saturating_sub(1);
+                    range.end = buf.next_line_index(range.end).saturating_sub(2);
                 }
                 MotionType::Word(Direction::Forward) => {
                     // is the character under the cursor alphanumeric+ or a 'other non-blank'?
@@ -458,7 +458,7 @@ mod tests {
             mo: MotionType::Char(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 0, 1), 4..5);
+        assert_eq!(mo.range(&b, 4, 1), 4..5);
     }
 
     #[test]
@@ -469,7 +469,7 @@ mod tests {
             mo: MotionType::Line(Direction::Forward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 0, 1), 4..8);
+        assert_eq!(mo.range(&b, 4, 1), 4..8);
     }
 
     #[test]
@@ -479,7 +479,7 @@ mod tests {
             mo: MotionType::StartOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b, 0, 1), 4..4);
+        assert_eq!(mo.range(&b, 4, 1), 4..4);
     }      
 
     #[test]
@@ -489,7 +489,7 @@ mod tests {
             mo: MotionType::EndOfLine,
             count: 1
         };
-        assert_eq!(mo.range(&b, 0, 1), 4..7);
+        assert_eq!(mo.range(&b, 4, 1), 4..6);
     }      
 
     #[test]
@@ -499,26 +499,24 @@ mod tests {
             mo: MotionType::Line(Direction::Backward),
             count: 1
         };
-        assert_eq!(mo.range(&b, 0, 1), 4..0);
+        assert_eq!(mo.range(&b, 4, 1), 4..0);
     }
 
-    fn run_repeated_test<'a>(b: &mut Buffer, mo: &Motion, 
+    fn run_repeated_test<'a>(b: &mut Buffer, cursor_index: &mut usize, mo: &Motion, 
                              correct_ends: impl Iterator<Item=&'a usize>, assert_msg: &str) {
-        let mut cix = 0;
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b, cix, 1);
-            assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
-            cix = r.end;
+            let r = mo.range(&b, *cursor_index, 1);
+            assert_eq!(r.end, *cwb, "{} i={} ci={}", assert_msg, i, *cursor_index);
+            *cursor_index = r.end;
         }
     }
 
-    fn run_repeated_test_then_offset<'a>(b: &mut Buffer, mo: &Motion, 
+    fn run_repeated_test_then_offset<'a>(b: &mut Buffer, cursor_index: &mut usize, mo: &Motion, 
                                          correct_ends: impl Iterator<Item=&'a usize>, offset: isize, assert_msg: &str) {
-        let mut cix = 0;
         for (i, cwb) in correct_ends.enumerate() {
-            let r = mo.range(&b, cix, 1);
+            let r = mo.range(&b, *cursor_index, 1);
             assert_eq!(r.end, *cwb, "{} i={}", assert_msg, i);
-            cix = (r.end as isize + offset) as usize;
+            *cursor_index = (r.end as isize + offset) as usize;
         }
     }
 
@@ -529,12 +527,13 @@ mod tests {
             mo: MotionType::Word(Direction::Forward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [4,7,11,15].iter(), "forward");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, [4,7,11,15].iter(), "forward");
         let mo = Motion {
             mo: MotionType::Word(Direction::Backward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [11,7,4,0].iter(), "backward");
+        run_repeated_test(&mut b, &mut ci, &mo, [11,7,4,0].iter(), "backward");
 
     }
 
@@ -545,13 +544,14 @@ mod tests {
             mo: MotionType::Word(Direction::Forward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [5,10,11,13,15,20].iter(), "forward");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, [5,10,11,13,15,20].iter(), "forward");
 
         let mo = Motion {
             mo: MotionType::Word(Direction::Backward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [15,13,11,10,5,0].iter(), "backward");
+        run_repeated_test(&mut b, &mut ci, &mo, [15,13,11,10,5,0].iter(), "backward");
     }
 
     #[test]
@@ -561,13 +561,14 @@ mod tests {
             mo: MotionType::BigWord(Direction::Forward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [5,10,15].iter(), "forward");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, [5,10,15].iter(), "forward");
 
         let mo = Motion {
             mo: MotionType::BigWord(Direction::Backward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [10,5,0].iter(), "backward");
+        run_repeated_test(&mut b, &mut ci, &mo, [10,5,0].iter(), "backward");
     }
 
     #[test]
@@ -577,13 +578,14 @@ mod tests {
             mo: MotionType::EndOfWord(Direction::Forward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [3,8,10,12,13,18,23].iter(), "forward");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, [3,8,10,12,13,18,23].iter(), "forward");
 
         let mo = Motion {
             mo: MotionType::EndOfWord(Direction::Backward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [18,13,12,10,8,3].iter(), "backward");
+        run_repeated_test(&mut b, &mut ci, &mo, [18,13,12,10,8,3].iter(), "backward");
     }
 
     #[test]
@@ -593,13 +595,14 @@ mod tests {
             mo: MotionType::EndOfBigWord(Direction::Forward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [3,8,13,18,23].iter(), "forward");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, [3,8,13,18,23].iter(), "forward");
 
         let mo = Motion {
             mo: MotionType::EndOfBigWord(Direction::Backward),
             count: 1
         };
-        run_repeated_test(&mut b, &mo, [18,13,8,3].iter(), "backward");
+        run_repeated_test(&mut b, &mut ci, &mo, [18,13,8,3].iter(), "backward");
     }
 
     #[test]
@@ -612,7 +615,8 @@ mod tests {
             },
             count: 1
         };
-        run_repeated_test(&mut b, &mo, correct.iter(), "forward, place on");
+        let mut ci = 0;
+        run_repeated_test(&mut b, &mut ci, &mo, correct.iter(), "forward, place on");
 
         let mo = Motion {
             mo: MotionType::NextChar {
@@ -620,7 +624,7 @@ mod tests {
             },
             count: 1
         };
-        run_repeated_test(&mut b, &mo, correct.iter().rev().skip(1), "backward, place on");
+        run_repeated_test(&mut b, &mut ci, &mo, correct.iter().rev().skip(1), "backward, place on");
     }
 
     #[test]
@@ -632,7 +636,8 @@ mod tests {
             },
             count: 1
         };
-        run_repeated_test_then_offset(&mut b, &mo, [1,6,16].iter(), 1, "forward, place before");
+        let mut ci = 0;
+        run_repeated_test_then_offset(&mut b, &mut ci, &mo, [1,6,16].iter(), 1, "forward, place before");
 
         let mo = Motion {
             mo: MotionType::NextChar {
@@ -640,7 +645,7 @@ mod tests {
             },
             count: 1
         };
-        run_repeated_test_then_offset(&mut b, &mo, [8,3].iter(), -1, "backward, place before");
+        run_repeated_test_then_offset(&mut b, &mut ci, &mo, [8,3].iter(), -1, "backward, place before");
     }
 
     #[test]

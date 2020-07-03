@@ -49,12 +49,22 @@ impl UserMessage {
     }
 }
 
+use std::cell::RefCell;
 
 #[derive(Clone, Debug)]
 pub enum PaneContent {
     Empty,
     Buffer {
-        buffer_index: usize
+        buffer_index: usize,
+        viewport_start: RwLock<usize>
+    }
+}
+
+impl PaneContent {
+    fn buffer(buffer_index: usize) -> PaneContent {
+        PaneContent::Buffer {
+            buffer_index, viewport_start: RwLock::new(0)
+        }
     }
 }
 
@@ -305,15 +315,22 @@ impl Split {
 
 pub struct EditorState {
     pub buffers: Vec<Buffer>, 
+    pub registers: HashMap<char, String>,
+
     pub panes: BTreeMap<usize, Pane>,
     pub current_pane: usize,
-    pub registers: HashMap<char, String>,
+
     pub command_line: Option<(usize, PieceTable)>,
+
     pub thread_pool: futures::executor::ThreadPool,
+
     pub servers: HashMap<String, Server>,
+
     pub force_redraw: bool,
+
     pub usrmsgs: Vec<UserMessage>,
     pub selected_usrmsg: usize,
+
     pub config: Config
 }
 
@@ -432,6 +449,23 @@ impl EditorState {
         }));
     }
 
+    pub fn open_buffer(state: PEditorState, server_name: String, path: std::path::PathBuf,
+        f: impl FnOnce(&mut EditorState, usize) + Send + Sync + 'static)
+    {
+        EditorState::make_request_async(state, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, |ess, resp| {
+            match resp {
+                protocol::Response::FileInfo { id, contents, version, format } => {
+                    let mut state = ess.write().unwrap();
+                    let buffer_index = state.buffers.len();
+                    state.buffers.push(Buffer::from_server(String::from(server_name),
+                        path, id, contents, version, format));
+                    f(&mut state, buffer_index);
+                },
+                _ => panic!() 
+            }
+        });
+    }
+
     pub fn sync_buffer(state: PEditorState, buffer_index: usize) {
         let (server_name, id, new_text, version) = {
             let state = state.read().unwrap();
@@ -484,7 +518,7 @@ impl EditorState {
                                             let cp = state.current_pane;
                                             let nbi = state.buffers.len();
                                             Pane::split(&mut state.panes, cp, true, 0.5,
-                                                        PaneContent::Buffer { buffer_index: nbi });
+                                                        PaneContent::Buffer { buffer_index: nbi, viewport_start: 0 });
                                             let p = state.buffers[buffer_index].path.clone();
                                             let f = state.buffers[buffer_index].format.clone();
                                             let server_name = state.buffers[buffer_index].server_name.clone();

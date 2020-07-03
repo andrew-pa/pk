@@ -63,47 +63,6 @@ impl Error {
     }
 }
 
-/*
- *  main -[new buffer text]> syntax highlighter
- *              |
- *  main <[highlights     ]- syntax highlighter
- */
-
-fn compute_highlight(s: &String) -> Option<Vec<piece_table_render::Highlight>> {
-    /*use regex::{Regex, Captures};
-    use piece_table_render::Highlight;
-    use config::ColorschemeSel;
-    let syni: Vec<(Regex, Box<dyn Fn(regex::Captures) -> Highlight>)> = vec![
-        (Regex::new(r#"\s?(fn|pub|struct|impl|for|let|use|mod)\s"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(0)))),
-        (Regex::new(r#"-?\d+\.?\d*"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(1)))),
-        (Regex::new(r#"(\w+)::"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(4)))),
-        (Regex::new(r#"(\w+)\s?\{"#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(4)))),
-        (Regex::new(r#"(\w+)\s?\("#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(1).unwrap().range(), ColorschemeSel::Accent(6)))),
-        (Regex::new(r#"".+""#).unwrap(), Box::new(|m: Captures| Highlight::foreground(m.get(0).unwrap().range(), ColorschemeSel::Accent(3)))),
-    ];
-    let mut hi: Vec<_> = syni.iter().flat_map(|(r, f)| r.captures_iter(s).map(f)).collect();
-    hi.sort_unstable_by(|a, b| a.range.start.cmp(&b.range.start));
-    Some(hi)*/
-
-    use syntax_highlight::*;
-    
-    use config::ColorschemeSel;
-
-    let sr = SyntaxRules {
-        highlight_rules: vec![
-            (LexicalItemType::Keyword, HighlightRule::Keyword("fn".into())),
-            (LexicalItemType::Keyword, HighlightRule::Keyword("pub".into())),
-            (LexicalItemType::Keyword, HighlightRule::Keyword("let".into())),
-            (LexicalItemType::Keyword, HighlightRule::Keyword("for".into())),
-        ]
-    };
-
-    let mut cm = std::collections::HashMap::new();
-    cm.insert(LexicalItemType::Keyword, ColorschemeSel::Accent(0));
-
-    Some(sr.apply(s.as_str(), &cm))
-}
-
 
 struct PkApp {
     fnt: Font,
@@ -112,7 +71,8 @@ struct PkApp {
     mode: Box<dyn Mode>,
     state: PEditorState,
     synh: Option<Vec<piece_table_render::Highlight>>,
-    last_highlighted_version: usize
+    last_highlighted_version: usize,
+    highlighter: syntax_highlight::Highlighter
 }
 
 impl runic::App for PkApp {
@@ -146,12 +106,18 @@ impl runic::App for PkApp {
             EditorState::connect_to_server(state.clone(), name.clone(), url);
         }
 
-        cargs.finish().unwrap();
+        for farg in cargs.free().unwrap() {
+            EditorState::open_buffer(state.clone(), "local".into(), std::path::PathBuf::from(farg), |state, buffer_index| {
+                Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Buffer { buffer_index, viewport_start: 0 });
+            });
+        }
 
         let mut asw = editor_state::AutosyncWorker::new(state.clone());
         std::thread::spawn(move || {
             asw.run();
         });
+
+        let highlighter = syntax_highlight::Highlighter::from_toml(config.syntax_coloring.as_ref());
 
         let fnt = rx.new_font(&config.font.0, config.font.1,
                               FontWeight::Regular, FontStyle::Normal).unwrap();
@@ -162,7 +128,8 @@ impl runic::App for PkApp {
         cmd_txr.highlight_line = false;
         PkApp {
             mode: Box::new(mode::CommandMode::new(state.clone())),
-            fnt, txr, cmd_txr, state, synh: None, last_highlighted_version: 0
+            fnt, txr, cmd_txr, state, synh: None, last_highlighted_version: 0,
+            highlighter
         }
     }
 
@@ -197,12 +164,13 @@ impl runic::App for PkApp {
 
         rx.clear(state.config.colors.background);
 
-        /*let mut x = 0f32;
-        for c in state.config.colors.accent.iter() {
-            rx.set_color(*c);
-            rx.fill_rect(Rect::xywh(x, 256.0, 64.0, 64.0));
-            x += 64.0;
-        }*/
+        // might be nice to expose this as some sort of command for debugging color schemes
+        // let mut x = 0f32;
+        // for c in state.config.colors.accent.iter() {
+        //     rx.set_color(*c);
+        //     rx.fill_rect(Rect::xywh(x, 256.0, 64.0, 64.0));
+        //     x += 64.0;
+        // }
 
         let usrmsg_y = if state.usrmsgs.len() > 0 {
             let x = 8f32; let mut y = rx.bounds().h-8f32; 
@@ -249,7 +217,7 @@ impl runic::App for PkApp {
             rx.stroke_rect(bounds, 1.0);
 
             match p.content {
-                PaneContent::Buffer { buffer_index } => {
+                PaneContent::Buffer { buffer_index, viewport_start } => {
                     let buf = &state.buffers[buffer_index];
                     let editor_bounds = Rect::xywh(bounds.x, bounds.y + self.txr.em_bounds.h + 4.0, bounds.w,
                                                        bounds.h);
@@ -266,37 +234,40 @@ impl runic::App for PkApp {
                     ), &self.fnt);
 
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
-                    self.txr.ensure_line_visible(curln, editor_bounds);
-                    /*if self.synh.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
+                    self.txr.ensure_line_visible(&mut viewport_start, curln, editor_bounds);
+                    if buf.highlights.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
                         let hstart = std::time::Instant::now();
-                        self.synh = compute_highlight(&buf.text.text());
+                        self.synh = Some(self.highlighter.compute_highlighting(buf));
                         self.last_highlighted_version = buf.text.most_recent_action_id();
                         println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
-                    }*/
-                    self.txr.paint(rx, &buf.text, buf.cursor_index, &state.config, editor_bounds, None);
+                    }
+                    self.txr.paint(rx, &buf.text, viewport_start, buf.cursor_index,
+                        &state.config, editor_bounds, buf.highlights.as_ref());
+
+                    // let mut y = 30.0;
+                    // let mut global_index = 0;
+                    // for p in buf.text.pieces.iter() {
+                    //     rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0),
+                    //         &format!("{}| \"{}\"", global_index, 
+                    //             &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
+                    //     global_index += p.length;
+                    //     y += 16.0;
+                    // }
                 },
                 PaneContent::Empty => {
                     rx.set_color(state.config.colors.accent[5]);
                     rx.draw_text(bounds.offset(Point::xy(self.txr.em_bounds.w, self.txr.em_bounds.h)), 
-                                 "enter a command to begin", &self.fnt);
+                        "enter a command to begin", &self.fnt);
                 }
             }
         }
 
-        /*let mut y = 30.0;
-          let mut global_index = 0;
-          for p in buf.text.pieces.iter() {
-          rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0), &format!("{}| \"{}\"", global_index, 
-          &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
-          global_index += p.length;
-          y += 16.0;
-          }*/
 
         if let Some((cmd_cur_index, pending_cmd)) = state.command_line.as_ref() {
             rx.set_color(state.config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(state.config.colors.three_quarter_gray);
-            self.cmd_txr.paint(rx, pending_cmd, *cmd_cur_index, &state.config,
+            self.cmd_txr.paint(rx, pending_cmd, 0, *cmd_cur_index, &state.config,
                                Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
         }
 

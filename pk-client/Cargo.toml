@@ -17,6 +17,7 @@ toml = "0.5"
 directories-next = "1"
 pico-args = "0.3"
 fuzzy-matcher = "0.3"
+syntect="4"
 
 [dependencies.nng-sys]
 features = ["cmake-vs2019"]

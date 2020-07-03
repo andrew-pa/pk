@@ -28,18 +28,9 @@ impl CommandFn for EditFileCommand {
         let server_name: String = a.name("server_name").map(|m| m.as_str()).unwrap_or("local").to_owned();
         let path = a.name("path").map(|m| PathBuf::from(m.as_str()))
             .ok_or(Error::InvalidCommand("missing path for editing a file".into()))?;
-        EditorState::make_request_async(es, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, |ess, resp| {
-            match resp {
-                protocol::Response::FileInfo { id, contents, version, format } => {
-                    let mut state = ess.write().unwrap();
-                    let buffer_index = state.buffers.len();
-                    state.buffers.push(Buffer::from_server(String::from(server_name),
-                        path, id, contents, version, format));
-                    state.current_pane_mut().content = PaneContent::Buffer { buffer_index };
-                    state.force_redraw = true;
-                },
-                _ => panic!() 
-            }
+        EditorState::open_buffer(es, server_name, path, |state, buffer_index| {
+            state.current_pane_mut().content = PaneContent::Buffer { buffer_index, viewport_start: 0 };
+            state.force_redraw = true;
         });
         Ok(Some(Box::new(NormalMode::new())))
     }
@@ -64,7 +55,7 @@ impl CommandFn for BufferCommand {
         match a.name("subcmd").map(|m| m.as_str()) {
             None => {
                 if let Some((buffer_index, _score)) = bufs.get(0) {
-                    es.write().unwrap().current_pane_mut().content = PaneContent::Buffer { buffer_index: *buffer_index };
+                    es.write().unwrap().current_pane_mut().content = PaneContent::Buffer { buffer_index: *buffer_index, viewport_start: 0 };
                     Ok(Some(Box::new(NormalMode::new())))
                 } else {
                     Err(Error::InvalidCommand(format!("no matching buffer for {}", name_query)))

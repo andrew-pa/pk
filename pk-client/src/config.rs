@@ -17,7 +17,7 @@ fn color_from_hex(h: &str) -> Result<Color, std::num::ParseIntError> {
     Ok(Color::rgba(r,g,b,a))
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ColorschemeSel {
     Background,
     QuarterGray,
@@ -25,6 +25,25 @@ pub enum ColorschemeSel {
     ThreeQuarterGray,
     Foreground,
     Accent(usize)
+}
+
+impl ColorschemeSel {
+    pub fn from_toml(val: &toml::Value) -> Result<ColorschemeSel, Error> {
+        if val.is_str() {
+            Ok(match val.as_str() {
+                Some("background") => ColorschemeSel::Background,
+                Some("quarter-gray") => ColorschemeSel::QuarterGray,
+                Some("half-gray") => ColorschemeSel::HalfGray,
+                Some("three-quarter-gray") => ColorschemeSel::ThreeQuarterGray,
+                Some("foreground") => ColorschemeSel::Foreground,
+                Some(_) => return Err(Error::ConfigParseError("expected a color name".into(), Some(val.clone()))),
+                None => panic!()
+            })
+        } else {
+            Ok(ColorschemeSel::Accent(val.as_integer()
+                    .ok_or_else(|| Error::ConfigParseError("expected number for accent colorscheme selector".into(), Some(val.clone())))? as usize))
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +54,7 @@ pub struct Colorscheme {
     pub three_quarter_gray: Color,
     pub foreground: Color,
 
-    pub accent: [Color; 7]
+    pub accent: [Color; 8]
 }
 
 impl Default for Colorscheme {
@@ -48,13 +67,14 @@ impl Default for Colorscheme {
             foreground: Color::white(),
 
             accent: [
-                color_from_hex("ff2800").unwrap(), //red
-                color_from_hex("ff9a21").unwrap(), //orange
-                color_from_hex("ffdc00").unwrap(), //yellow
-                color_from_hex("00ff97").unwrap(), //green
-                color_from_hex("3ff2ee").unwrap(), //aqua
-                color_from_hex("3fc2ff").unwrap(), //blue
-                color_from_hex("9000ff").unwrap(), //purple
+                color_from_hex("ff2800").unwrap(), //red 0
+                color_from_hex("ff9a21").unwrap(), //orange 1
+                color_from_hex("ffdc00").unwrap(), //yellow 2
+                color_from_hex("00ff77").unwrap(), //green 3
+                color_from_hex("3ff2ee").unwrap(), //aqua 4
+                color_from_hex("3fc2ff").unwrap(), //blue 5
+                color_from_hex("8000ff").unwrap(), //purple 6
+                color_from_hex("c000ff").unwrap(), //magenta 7
             ]
         }
     }
@@ -90,7 +110,7 @@ impl Colorscheme {
         
         let mut cs = Colorscheme { 
             background, foreground, quarter_gray, half_gray, three_quarter_gray,
-            accent: [Color::black(); 7]
+            accent: [Color::black(); 8]
         };
 
         for (i, v) in val.get("accents").and_then(Value::as_array)
@@ -113,10 +133,37 @@ pub struct Config {
     pub font: (String, f32),
     pub tabstop: usize,
     pub softtab: bool,
-    pub colors: Colorscheme
+    pub colors: Colorscheme,
+    pub syntax_coloring: Option<toml::Value>
 }
 
 impl Config {
+    fn default_toml_blob() -> toml::Value {
+        toml::toml!{
+            syntax-coloring = [
+            { scope = "comment", style = "half-gray" },
+            { scope = "string", style = 3 },
+            { scope = "number, constant", style = 1 },
+            { scope = "punctuation", style = "foreground" },
+            { scope = "variable", style = "foreground" },
+            { scope = "variable.function, entity.name.function", style = 6 },
+            { scope = "variable.language", style = 1 },
+            { scope = "keyword", style = 0 },
+            { scope = "meta.import keyword, keyword.control.import, keyword.other.import", style = 0 },
+            { scope = "keyword.operator", style = 4 },
+            { scope = "storage", style = 0 },
+            { scope = "storage.modifier", style = 3 },
+            { scope = "storage.type", style = 0 },
+            { scope = "entity.name", style = 6 },
+            { scope = "keyword.other.special-method", style = 1 },
+            { scope = "keyword.control.class, entity.name, entity.name.class, entity.name.type.class", style = 6 },
+            { scope = "support.type", style = 1 },
+            { scope = "support, support.class", style = 6 },
+            { scope = "meta.path", style = 5 },
+            ]
+        }
+    }
+
     pub fn from_toml(val: toml::Value) -> Result<Config, super::Error> {
         use toml::Value;
 
@@ -159,6 +206,9 @@ impl Config {
             };
         }
 
+        cfg.syntax_coloring = val.get("syntax-coloring").cloned().or_else(|| Config::default_toml_blob().get("syntax-coloring").cloned());
+        dbg!(&cfg.syntax_coloring);
+
         Ok(cfg)
     }
 }
@@ -169,7 +219,8 @@ impl Default for Config {
             autoconnect_servers: vec![("local".into(), "ipc://pk".into())],
             font: ("Fira Code".into(), 14.0),
             tabstop: 4, softtab: true,
-            colors: Colorscheme::default()
+            colors: Colorscheme::default(),
+            syntax_coloring: Config::default_toml_blob().get("syntax-coloring").cloned()
         }
     }
 }

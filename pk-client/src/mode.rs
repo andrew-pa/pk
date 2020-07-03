@@ -53,7 +53,7 @@ impl Mode for NormalMode {
                     VirtualKeyCode::Left => {
                         let mut state = state.write().unwrap();
                         match &mut state.current_pane_mut().content {
-                            PaneContent::Buffer { buffer_index } => 
+                            PaneContent::Buffer { buffer_index, .. } => 
                                 *buffer_index = buffer_index.saturating_sub(1),
                             _ => {}
                         }
@@ -63,7 +63,7 @@ impl Mode for NormalMode {
                         let mut state = state.write().unwrap();
                         let numbufs = state.buffers.len();
                         match &mut state.current_pane_mut().content {
-                            PaneContent::Buffer { buffer_index } => 
+                            PaneContent::Buffer { buffer_index, .. } => 
                                 *buffer_index = (*buffer_index + 1).min(numbufs.saturating_sub(1)),
                             _ => {}
                         }
@@ -96,7 +96,7 @@ impl Mode for NormalMode {
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new(state)))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
-                                if let PaneContent::Buffer { buffer_index } = state.current_pane().content {
+                                if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
                                     let buf = &mut state.buffers[buffer_index];
                                     Ok(Some(Box::new(InsertMode::new(buf.text.insert_mutator(buf.cursor_index))))) 
                                 } else {
@@ -151,7 +151,7 @@ impl Mode for InsertMode {
     fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
         let (softtab, tabstop) = (state.config.softtab, state.config.tabstop);
-        if let PaneContent::Buffer { buffer_index } = state.current_pane().content {
+        if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
             let buf = &mut state.buffers[buffer_index];
             match e {
                 Event::ReceivedCharacter(c) if !c.is_control() => {

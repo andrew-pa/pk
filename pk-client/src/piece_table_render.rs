@@ -65,7 +65,6 @@ use std::hash::{Hash, Hasher};
 pub struct PieceTableRenderer {
     fnt: Font,
     pub em_bounds: Rect,
-    pub viewport_start: usize,
     pub cursor_style: CursorStyle,
     pub highlight_line: bool,
     layout_cashe: HashMap<usize, (u64, TextLayout)>
@@ -75,7 +74,6 @@ impl PieceTableRenderer {
     pub fn init(rx: &mut RenderContext, fnt: Font, em_bounds: Rect) -> Self {
         PieceTableRenderer {
             fnt,
-            viewport_start: 0,
             em_bounds,
             cursor_style: CursorStyle::Underline,
             highlight_line: true,
@@ -83,8 +81,8 @@ impl PieceTableRenderer {
         }
     }
 
-    fn viewport_end(&self, bounds: &Rect) -> usize {
-        self.viewport_start + ((bounds.h / self.em_bounds.h).floor() as usize).saturating_sub(2)
+    fn viewport_end(&self, viewport_start: usize, bounds: &Rect) -> usize {
+        viewport_start + ((bounds.h / self.em_bounds.h).floor() as usize).saturating_sub(2)
     }
 
     fn generate_line_layout(&self, ln: &str, global_index: usize, rx: &mut RenderContext, colors: &Colorscheme, highlights: Option<&Vec<Highlight>>) -> TextLayout {
@@ -101,20 +99,20 @@ impl PieceTableRenderer {
         layout
     }
 
-    pub fn ensure_line_visible(&mut self, line: usize, bounds: Rect) {
-        let viewport_end = self.viewport_end(&bounds);
-        if self.viewport_start >= line { self.viewport_start = line.saturating_sub(1); }
-        if viewport_end <= line { self.viewport_start += line - viewport_end; }
+    pub fn ensure_line_visible(&self, viewport_start: &mut usize, line: usize, bounds: Rect) {
+        let viewport_end = self.viewport_end(*viewport_start, &bounds);
+        if *viewport_start >= line { *viewport_start = line.saturating_sub(1); }
+        if viewport_end <= line { *viewport_start += line - viewport_end; }
     }
 
-    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, cursor_index: usize,
+    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, viewport_start: usize, cursor_index: usize,
                  config: &Config, bounds: Rect, highlights: Option<&Vec<Highlight>>)
     {
         rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
         let mut cur_pos = Point::xy(bounds.x, bounds.y); 
         let mut line_num = 0usize;
-        let viewport_end = self.viewport_end(&bounds);
+        let viewport_end = self.viewport_end(viewport_start, &bounds);
         let table_len = table.len();
         for p in table.pieces.iter() {
             let src = &table.sources[p.source][p.start..(p.start+p.length)];
@@ -123,7 +121,7 @@ impl PieceTableRenderer {
                 let ln = lni.next();
                 if ln.is_none() { break; }
                 let ln = ln.unwrap();
-                if line_num < self.viewport_start {
+                if line_num < viewport_start {
                     if lni.peek().is_some() { line_num+=1; }
                     global_index += ln.len()+1;
                     continue;
