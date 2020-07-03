@@ -70,6 +70,7 @@ struct PkApp {
     cmd_txr: PieceTableRenderer,
     mode: Box<dyn Mode>,
     state: PEditorState,
+    client: PClientState,
     synh: Option<Vec<piece_table_render::Highlight>>,
     last_highlighted_version: usize,
     highlighter: syntax_highlight::Highlighter
@@ -90,29 +91,32 @@ impl runic::App for PkApp {
                             format!("error parsing configuration file: {}", e), None)))
             }, |v| (v, None)));
 
-        let mut state = EditorState::with_config(config.clone());
+        let mut client = ClientState::with_config(config.clone());
+        let mut estate = EditorState::new();
         if let Some(em) = errmsg {
-            state.process_usr_msg(em);
+            client.process_usr_msg(em);
         }
 
-        state.panes.insert(0, Pane::whole_screen(PaneContent::Empty));
+        estate.panes.insert(0, Pane::whole_screen(PaneContent::Empty));
 
-        let state = Arc::new(RwLock::new(state));
+        let client = Arc::new(RwLock::new(client));
+        let estate = Arc::new(RwLock::new(estate));
         if let Some(url) = cargs.opt_value_from_str::<&str, String>("--server").unwrap() {
-            EditorState::connect_to_server(state.clone(), "cmdln".into(), &url);
+            ClientState::connect_to_server(client.clone(), "cmdln".into(), &url);
         }
 
         for (name, url) in config.autoconnect_servers.iter() {
-            EditorState::connect_to_server(state.clone(), name.clone(), url);
+            ClientState::connect_to_server(client.clone(), name.clone(), url);
         }
 
         for farg in cargs.free().unwrap() {
-            EditorState::open_buffer(state.clone(), "local".into(), std::path::PathBuf::from(farg), |state, buffer_index| {
-                Pane::split(&mut state.panes, 0, true, 0.5, PaneContent::Buffer { buffer_index, viewport_start: 0 });
+            ClientState::open_buffer(client.clone(), estate.clone(), "local".into(), std::path::PathBuf::from(farg),
+            |estate, cstate, buffer_index| {
+                Pane::split(&mut estate.panes, 0, true, 0.5, PaneContent::Buffer { buffer_index, viewport_start: 0 });
             });
         }
 
-        let mut asw = editor_state::AutosyncWorker::new(state.clone());
+        let mut asw = editor_state::AutosyncWorker::new(client.clone(), estate.clone());
         std::thread::spawn(move || {
             asw.run();
         });
@@ -127,8 +131,8 @@ impl runic::App for PkApp {
         cmd_txr.cursor_style = CursorStyle::Line;
         cmd_txr.highlight_line = false;
         PkApp {
-            mode: Box::new(mode::CommandMode::new(state.clone())),
-            fnt, txr, cmd_txr, state, synh: None, last_highlighted_version: 0,
+            mode: Box::new(mode::CommandMode::new()),
+            fnt, txr, cmd_txr, state: estate, client, synh: None, last_highlighted_version: 0,
             highlighter
         }
     }
@@ -137,21 +141,21 @@ impl runic::App for PkApp {
         if let Event::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, .. }, .. } = e {
             *should_redraw = true;
         }
-        if { self.state.read().unwrap().force_redraw } {
+        if { self.client.read().unwrap().force_redraw } {
             *should_redraw = true;
-            self.state.write().unwrap().force_redraw = false;
+            self.client.write().unwrap().force_redraw = false;
         }
 
         match e {
             Event::CloseRequested => *event_loop_flow = ControlFlowOpts::Exit,
             _ => {
-                match self.mode.event(e, self.state.clone()) {
+                match self.mode.event(e, self.client.clone(), self.state.clone()) {
                     Ok(Some(new_mode)) => { self.mode = new_mode },
                     Ok(None) => {},
                     Err(e) => {
                         println!("{:?}", e);
                         self.mode = Box::new(NormalMode::new());
-                        self.state.write().unwrap().process_error(e);
+                        self.client.write().unwrap().process_error(e);
                     }
                 };
             }
@@ -160,9 +164,12 @@ impl runic::App for PkApp {
 
     fn paint(&mut self, rx: &mut RenderContext) {
         let start = std::time::Instant::now();
-        let state = self.state.read().unwrap();
+        let mut client = self.client.read().unwrap();
+        let mut state = self.state.write().unwrap();
 
-        rx.clear(state.config.colors.background);
+        let config = &client.config;
+
+        rx.clear(config.colors.background);
 
         // might be nice to expose this as some sort of command for debugging color schemes
         // let mut x = 0f32;
@@ -172,13 +179,13 @@ impl runic::App for PkApp {
         //     x += 64.0;
         // }
 
-        let usrmsg_y = if state.usrmsgs.len() > 0 {
+        let usrmsg_y = if client.usrmsgs.len() > 0 {
             let x = 8f32; let mut y = rx.bounds().h-8f32; 
-            for (i, um) in state.usrmsgs.iter().enumerate().rev() {
+            for (i, um) in client.usrmsgs.iter().enumerate().rev() {
                 rx.set_color(match um.mtype {
-                    UserMessageType::Error => state.config.colors.accent[0],
-                    UserMessageType::Warning => state.config.colors.accent[2],
-                    UserMessageType::Info => state.config.colors.half_gray,
+                    UserMessageType::Error => config.colors.accent[0],
+                    UserMessageType::Warning => config.colors.accent[2],
+                    UserMessageType::Info => config.colors.half_gray,
                 });
                 let msg_tf = rx.new_text_layout(&um.message, &self.fnt, rx.bounds().w, 1000.0).unwrap();
                 let msgb = msg_tf.bounds();
@@ -188,14 +195,14 @@ impl runic::App for PkApp {
                     let mut x = x + msgb.w * 0.1;
                     for (j, op) in opts.iter().enumerate() {
                         let f = rx.new_text_layout(&format!("[{}] {}", j+1, op), &self.fnt, 1000.0, 1000.0).unwrap();
-                        f.color_range(rx, 0..3, state.config.colors.accent[6]);
+                        f.color_range(rx, 0..3, config.colors.accent[6]);
                         rx.draw_text_layout(Point::xy(x,y), &f);
                         x += f.bounds().w + self.txr.em_bounds.w*3.0;
                     }
                     y -= msgb.h;
                 }
                 rx.draw_text_layout(Point::xy(x, y), &msg_tf);
-                if self.mode.mode_tag() == ModeTag::UserMessage && state.selected_usrmsg == i {
+                if self.mode.mode_tag() == ModeTag::UserMessage && client.selected_usrmsg == i {
                     rx.stroke_rect(Rect::xywh(x-2f32, y-1.0, rx.bounds().w-12f32, sy-y + 1.0), 2.0);
                 }
             }
@@ -213,7 +220,7 @@ impl runic::App for PkApp {
 
             let active = *i == state.current_pane;
 
-            rx.set_color(if active { state.config.colors.half_gray } else { state.config.colors.quarter_gray });
+            rx.set_color(if active { config.colors.half_gray } else { config.colors.quarter_gray });
             rx.stroke_rect(bounds, 1.0);
 
             match p.content {
@@ -224,25 +231,27 @@ impl runic::App for PkApp {
                     let curln = buf.line_for_index(buf.cursor_index);
 
                     // draw status line
-                    rx.set_color(state.config.colors.quarter_gray);
+                    rx.set_color(config.colors.quarter_gray);
                     rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
-                    rx.set_color(if active { state.config.colors.accent[1] } else { state.config.colors.three_quarter_gray });
+                    rx.set_color(if active { config.colors.accent[1] } else { config.colors.three_quarter_gray });
                     rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 2.0, bounds.w, 1000.0),
-                        &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln, buf.column_for_index(buf.cursor_index),
+                        &format!("{} / ln {} col {} / {}:{} v{}{} [{}]", self.mode, curln,
+                            buf.column_for_index(buf.cursor_index),
                             buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
                             if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
                     ), &self.fnt);
 
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
-                    self.txr.ensure_line_visible(&mut viewport_start, curln, editor_bounds);
+                    let mut vp = 0;
+                    self.txr.ensure_line_visible(/*&mut viewport_start*/&mut vp, curln, editor_bounds);
                     if buf.highlights.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
                         let hstart = std::time::Instant::now();
                         self.synh = Some(self.highlighter.compute_highlighting(buf));
                         self.last_highlighted_version = buf.text.most_recent_action_id();
                         println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
                     }
-                    self.txr.paint(rx, &buf.text, viewport_start, buf.cursor_index,
-                        &state.config, editor_bounds, buf.highlights.as_ref());
+                    self.txr.paint(rx, &buf.text, vp, buf.cursor_index,
+                        &config, editor_bounds, buf.highlights.as_ref());
 
                     // let mut y = 30.0;
                     // let mut global_index = 0;
@@ -255,24 +264,24 @@ impl runic::App for PkApp {
                     // }
                 },
                 PaneContent::Empty => {
-                    rx.set_color(state.config.colors.accent[5]);
-                    rx.draw_text(bounds.offset(Point::xy(self.txr.em_bounds.w, self.txr.em_bounds.h)), 
+                    rx.set_color(config.colors.accent[5]);
+                    rx.draw_text(bounds.offset(Point::xy(self.txr.em_bounds.w, self.txr.em_bounds.h*3.0)), 
                         "enter a command to begin", &self.fnt);
                 }
             }
         }
 
 
-        if let Some((cmd_cur_index, pending_cmd)) = state.command_line.as_ref() {
-            rx.set_color(state.config.colors.quarter_gray);
+        if let Some((cmd_cur_index, pending_cmd)) = self.mode.cmd_line() {
+            rx.set_color(config.colors.quarter_gray);
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
-            rx.set_color(state.config.colors.three_quarter_gray);
-            self.cmd_txr.paint(rx, pending_cmd, 0, *cmd_cur_index, &state.config,
+            rx.set_color(config.colors.three_quarter_gray);
+            self.cmd_txr.paint(rx, pending_cmd, 0, cmd_cur_index, &config,
                                Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
         }
 
         let end = std::time::Instant::now();
-        rx.set_color(state.config.colors.quarter_gray);
+        rx.set_color(config.colors.quarter_gray);
         rx.draw_text(Rect::xywh(rx.bounds().w-148.0, rx.bounds().h - 20.0, 1000.0, 1000.0), &format!("f{}ms", (end-start).as_nanos() as f32 / 1000000.0), &self.fnt);
 
     }

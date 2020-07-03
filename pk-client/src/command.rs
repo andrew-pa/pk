@@ -341,18 +341,4 @@ mod tests {
             panic!("expected '2df' to be an incomplete command");
         }
     }
-
-    #[test]
-    fn append_to_the_end_of_a_line() {
-        let mut es = EditorState::with_config(Config::default());
-        es.buffers.push(buffer::Buffer::with_text("this is\na test"));
-        es.panes.insert(0, Pane::whole_screen(PaneContent::Buffer { buffer_index: 0, viewport_start: 0 }));
-        es.current_pane = 0;
-        Command::parse("$").unwrap().execute(&mut es).unwrap();
-        Command::parse("a").unwrap().execute(&mut es).unwrap();
-        let buf = es.current_buffer_mut().unwrap();
-        assert_eq!(buf.cursor_index, 7);
-        buf.text.insert_range(",", buf.cursor_index);
-        assert_eq!(buf.text.text(), "this is,\na test");
-    }
 }

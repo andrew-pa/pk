@@ -12,7 +12,7 @@ pub enum UserMessageType {
     Error, Warning, Info
 }
 
-type UserMessageActions = (Vec<String>, Box<dyn Fn(usize, PEditorState) + Send + Sync>); 
+type UserMessageActions = (Vec<String>, Box<dyn Fn(usize, PClientState) + Send + Sync>); 
 
 pub struct UserMessage {
     pub mtype: UserMessageType,
@@ -56,14 +56,14 @@ pub enum PaneContent {
     Empty,
     Buffer {
         buffer_index: usize,
-        viewport_start: RwLock<usize>
+        viewport_start: usize
     }
 }
 
 impl PaneContent {
     fn buffer(buffer_index: usize) -> PaneContent {
         PaneContent::Buffer {
-            buffer_index, viewport_start: RwLock::new(0)
+            buffer_index, viewport_start: 0
         }
     }
 }
@@ -315,13 +315,13 @@ impl Split {
 
 pub struct EditorState {
     pub buffers: Vec<Buffer>, 
-    pub registers: HashMap<char, String>,
+    pub registers: BTreeMap<char, String>,
 
     pub panes: BTreeMap<usize, Pane>,
     pub current_pane: usize,
+}
 
-    pub command_line: Option<(usize, PieceTable)>,
-
+pub struct ClientState {
     pub thread_pool: futures::executor::ThreadPool,
 
     pub servers: HashMap<String, Server>,
@@ -334,29 +334,19 @@ pub struct EditorState {
     pub config: Config
 }
 
-impl Default for EditorState {
-    fn default() -> EditorState {
-        EditorState::with_config(Config::default())
+impl Default for ClientState{
+    fn default() -> ClientState {
+        ClientState::with_config(Config::default())
     }
 }
 
-pub type PEditorState = Arc<RwLock<EditorState>>;
-
 impl EditorState {
-    pub fn with_config(config: Config) -> EditorState {
-        use futures::executor::ThreadPoolBuilder;
+    pub fn new() -> EditorState {
         EditorState {
             buffers: Vec::new(),
             panes: BTreeMap::new(),
             current_pane: 0,
-            registers: HashMap::new(),
-            command_line: None,
-            thread_pool: ThreadPoolBuilder::new().create().unwrap(),
-            servers: HashMap::new(),
-            force_redraw: false,
-            usrmsgs: Vec::new(),
-            selected_usrmsg: 0,
-            config
+            registers: BTreeMap::new(),
         }
     }
 
@@ -395,7 +385,25 @@ impl EditorState {
         }
     }
 
-    pub fn connect_to_server(state: PEditorState, name: String, url: &str) {
+}
+
+pub type PEditorState = Arc<RwLock<EditorState>>;
+pub type PClientState = Arc<RwLock<ClientState>>;
+
+impl ClientState {
+    pub fn with_config(config: Config) -> ClientState {
+        use futures::executor::ThreadPoolBuilder;
+        ClientState {
+            thread_pool: ThreadPoolBuilder::new().create().unwrap(),
+            servers: HashMap::new(),
+            force_redraw: false,
+            usrmsgs: Vec::new(),
+            selected_usrmsg: 0,
+            config
+        }
+    }
+
+    pub fn connect_to_server(state: PClientState, name: String, url: &str) {
         let tp = {state.read().unwrap().thread_pool.clone()};
         let stp = tp.clone();
         let url = url.to_owned();
@@ -405,16 +413,16 @@ impl EditorState {
                 Ok(s) => {
                     println!("c {:?}", std::time::Instant::now());
                     state.servers.insert(name.clone(), s);
-                    EditorState::process_usr_msg(&mut state, UserMessage::info(
+                    ClientState::process_usr_msg(&mut state, UserMessage::info(
                             format!("Connected to {} ({})!", name, url),
                             None));
                 }
                 Err(e) => {
-                    EditorState::process_usr_msg(&mut state,
+                    ClientState::process_usr_msg(&mut state,
                         UserMessage::error(
                             format!("Connecting to {} ({}) failed (reason: {}), retry?", name, url, e),
                                 Some((vec!["Retry".into()], Box::new(move |_, sstate| {
-                                    EditorState::connect_to_server(sstate, name.clone(), &url);
+                                    ClientState::connect_to_server(sstate, name.clone(), &url);
                                 })))
                             ));
                 }
@@ -422,8 +430,8 @@ impl EditorState {
         });
     }
 
-    pub fn make_request_async<F>(state: PEditorState, server_name: impl AsRef<str>, request: protocol::Request, f: F)
-        where F: FnOnce(PEditorState, protocol::Response) + Send + Sync + 'static
+    pub fn make_request_async<F>(state: PClientState, server_name: impl AsRef<str>, request: protocol::Request, f: F)
+        where F: FnOnce(PClientState, protocol::Response) + Send + Sync + 'static
     {
         let tp = {state.read().unwrap().thread_pool.clone()};
         let req_fut = match {
@@ -449,36 +457,37 @@ impl EditorState {
         }));
     }
 
-    pub fn open_buffer(state: PEditorState, server_name: String, path: std::path::PathBuf,
-        f: impl FnOnce(&mut EditorState, usize) + Send + Sync + 'static)
+    pub fn open_buffer(state: PClientState, ess: PEditorState, server_name: String, path: std::path::PathBuf,
+        f: impl FnOnce(&mut EditorState, PClientState, usize) + Send + Sync + 'static)
     {
-        EditorState::make_request_async(state, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, |ess, resp| {
+        let sstate = state.clone();
+        ClientState::make_request_async(state, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, move |css, resp| {
             match resp {
                 protocol::Response::FileInfo { id, contents, version, format } => {
-                    let mut state = ess.write().unwrap();
-                    let buffer_index = state.buffers.len();
-                    state.buffers.push(Buffer::from_server(String::from(server_name),
+                    let mut estate = ess.write().unwrap();
+                    let buffer_index = estate.buffers.len();
+                    estate.buffers.push(Buffer::from_server(String::from(server_name),
                         path, id, contents, version, format));
-                    f(&mut state, buffer_index);
+                    f(&mut estate, sstate, buffer_index);
                 },
                 _ => panic!() 
             }
         });
     }
 
-    pub fn sync_buffer(state: PEditorState, buffer_index: usize) {
+    pub fn sync_buffer(state: PClientState, ed_state: PEditorState, buffer_index: usize) {
         let (server_name, id, new_text, version) = {
-            let state = state.read().unwrap();
+            let state = ed_state.read().unwrap();
             let b = &state.buffers[buffer_index];
             if b.currently_in_conflict { return; }
             (b.server_name.clone(), b.file_id, b.text.text(), b.version+1)
         };
-        EditorState::make_request_async(state, server_name,
+        ClientState::make_request_async(state, server_name,
             protocol::Request::SyncFile { id, new_text, version },
-            move |ess, resp| {
+            move |css, resp| {
                 match resp {
                     protocol::Response::Ack => {
-                        let mut state = ess.write().unwrap();
+                        let mut state = ed_state.write().unwrap();
                         state.buffers[buffer_index].version = version;
                     },
                     protocol::Response::VersionConflict { id, client_version_recieved: _,
@@ -488,18 +497,20 @@ impl EditorState {
                         // want to do about the conflict. this becomes a tricky situation since
                         // there's no reason to become Git, but it is nice to able to handle this
                         // situation in a nice way
-                        let mut state = ess.write().unwrap();
-                        let b = &mut state.buffers[buffer_index];
-                        b.currently_in_conflict = true;
-                        let m = format!("Server version of {}:{} conflicts with local version!",
-                                        b.server_name, b.path.to_str().unwrap_or(""));
-                        state.usrmsgs.push(UserMessage::warning(m,
+                        let m = {
+                            let mut ed_state = ed_state.write().unwrap();
+                            let b = &mut ed_state.buffers[buffer_index];
+                            b.currently_in_conflict = true;
+                            format!("Server version of {}:{} conflicts with local version!",
+                                b.server_name, b.path.to_str().unwrap_or(""))
+                        };
+                        css.write().unwrap().usrmsgs.push(UserMessage::warning(m,
                                 Some((vec![
-                                      "Keep local version".into(),
-                                      "Open server version/Discard local".into(),
-                                      "Open server version in new buffer".into()
+                                        "Keep local version".into(),
+                                        "Open server version/Discard local".into(),
+                                        "Open server version in new buffer".into()
                                 ], Box::new(move |index, state| {
-                                    let mut state = state.write().unwrap();
+                                    let mut state = ed_state.write().unwrap();
                                     match index {
                                         0 => {
                                             // next time we sync, overwrite server version
@@ -518,7 +529,7 @@ impl EditorState {
                                             let cp = state.current_pane;
                                             let nbi = state.buffers.len();
                                             Pane::split(&mut state.panes, cp, true, 0.5,
-                                                        PaneContent::Buffer { buffer_index: nbi, viewport_start: 0 });
+                                                PaneContent::Buffer { buffer_index: nbi, viewport_start: 0 });
                                             let p = state.buffers[buffer_index].path.clone();
                                             let f = state.buffers[buffer_index].format.clone();
                                             let server_name = state.buffers[buffer_index].server_name.clone();
@@ -534,7 +545,7 @@ impl EditorState {
                         ));
                     }
                     _ => panic!() 
-                }
+            }
             }
         );
     }
@@ -544,7 +555,7 @@ impl EditorState {
         self.force_redraw = true;
     }
     
-    pub fn process_usr_msgp(state: PEditorState, um: UserMessage) {
+    pub fn process_usr_msgp(state: PClientState, um: UserMessage) {
         state.write().unwrap().process_usr_msg(um);
     }
 
@@ -557,13 +568,14 @@ impl EditorState {
 }
 
 pub struct AutosyncWorker {
+    cstate: PClientState,
     state: PEditorState,
     last_synced_action_ids: HashMap<String, HashMap<protocol::FileId, usize>> 
 }
 
 impl AutosyncWorker {
-    pub fn new(state: PEditorState) -> AutosyncWorker {
-        AutosyncWorker { state, last_synced_action_ids: HashMap::new() }
+    pub fn new(cstate: PClientState, state: PEditorState) -> AutosyncWorker {
+        AutosyncWorker { cstate, state, last_synced_action_ids: HashMap::new() }
     }
 
     pub fn run(&mut self) {
@@ -589,7 +601,7 @@ impl AutosyncWorker {
             }
             // println!("autosync {:?}", need_sync);
             for i in need_sync {
-                EditorState::sync_buffer(self.state.clone(), i);
+                ClientState::sync_buffer(self.cstate.clone(), self.state.clone(), i);
             }
         }
     }

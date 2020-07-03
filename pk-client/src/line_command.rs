@@ -2,15 +2,15 @@ use super::*;
 use crate::buffer::Buffer;
  
 pub trait CommandFn {
-    fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult;
+    fn process(&self, cs: PClientState, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult;
 }
 
 pub struct TestCommand;
 
 impl CommandFn for TestCommand {
-    fn process(&self, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
         println!("args = {:?}", args.get(1));
-        EditorState::process_usr_msgp(editor_state,
+        ClientState::process_usr_msgp(client_state,
             UserMessage::info("This is a test".into(),
                               Some((vec!["option 1".into(), "looong option 2".into(), "option 3".into()],
                               Box::new(move |index, _state| {
@@ -23,14 +23,14 @@ impl CommandFn for TestCommand {
 pub struct EditFileCommand;
 
 impl CommandFn for EditFileCommand {
-    fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, cs: PClientState, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
         use std::path::PathBuf;
         let server_name: String = a.name("server_name").map(|m| m.as_str()).unwrap_or("local").to_owned();
         let path = a.name("path").map(|m| PathBuf::from(m.as_str()))
             .ok_or(Error::InvalidCommand("missing path for editing a file".into()))?;
-        EditorState::open_buffer(es, server_name, path, |state, buffer_index| {
+        ClientState::open_buffer(cs, es, server_name, path, |state, cstate, buffer_index| {
             state.current_pane_mut().content = PaneContent::Buffer { buffer_index, viewport_start: 0 };
-            state.force_redraw = true;
+            cstate.write().unwrap().force_redraw = true;
         });
         Ok(Some(Box::new(NormalMode::new())))
     }
@@ -39,7 +39,7 @@ impl CommandFn for EditFileCommand {
 pub struct BufferCommand;
 
 impl CommandFn for BufferCommand {
-    fn process(&self, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, cs: PClientState, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult {
         let name_query = a.name("name_query")
             .ok_or_else(|| Error::InvalidCommand("expected buffer name".into()))?.as_str();
 
@@ -66,12 +66,12 @@ impl CommandFn for BufferCommand {
                     let mut state = es.write().unwrap();
                     let buf = state.buffers.remove(*index);
                     drop(state);
-                    EditorState::make_request_async(es, buf.server_name, protocol::Request::CloseFile(buf.file_id), 
+                    ClientState::make_request_async(cs, buf.server_name, protocol::Request::CloseFile(buf.file_id), 
                         |s, res| {
                             match res {
                                 protocol::Response::Ack => {},
-                                protocol::Response::Error { message } => EditorState::process_usr_msgp(s,
-                                                                UserMessage::error(message, None)),
+                                protocol::Response::Error { message } => 
+                                    ClientState::process_usr_msgp(s, UserMessage::error(message, None)),
                                 _ => panic!("unexpected server response {:?}", res)
                             }
                         }
@@ -82,10 +82,11 @@ impl CommandFn for BufferCommand {
                 }
             }
             Some("l") => {
-                let mut state = es.write().unwrap();
+                let mut state = cs.write().unwrap();
+                let estate = es.read().unwrap();
                 let m = UserMessage::info(
                     bufs.iter().fold(String::from("matching buffers ="),
-                            |s, b| s + " " + state.buffers[b.0].path.to_str().unwrap_or("")), None);
+                            |s, b| s + " " + estate.buffers[b.0].path.to_str().unwrap_or("")), None);
                 state.process_usr_msg(m); 
                 Ok(Some(Box::new(NormalMode::new())))
             },
@@ -97,9 +98,9 @@ impl CommandFn for BufferCommand {
 pub struct SyncFileCommand;
 
 impl CommandFn for SyncFileCommand {
-    fn process(&self, es: PEditorState, _: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, cs: PClientState, es: PEditorState, _: &regex::Captures) -> mode::ModeEventResult {
         let cb = { es.read().unwrap().current_buffer_index().ok_or_else(|| Error::InvalidCommand("no buffer to sync".into()))? };
-        EditorState::sync_buffer(es, cb);
+        ClientState::sync_buffer(cs, es, cb);
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
@@ -107,9 +108,9 @@ impl CommandFn for SyncFileCommand {
 pub struct ConnectToServerCommand;
 
 impl CommandFn for ConnectToServerCommand {
-    fn process(&self, es: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, cs: PClientState, _: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
         println!("connect {:?}", args);
-        EditorState::connect_to_server(es,
+        ClientState::connect_to_server(cs,
                args.name("server_name")
                     .ok_or_else(|| Error::InvalidCommand("expected server name for new connection".into()))?.as_str().into(),
                args.name("server_url")

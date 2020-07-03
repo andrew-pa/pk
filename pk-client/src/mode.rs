@@ -1,6 +1,5 @@
 
 use std::fmt;
-use std::collections::HashMap;
 use runic::*;
 use super::*;
 use std::sync::{Arc,RwLock};
@@ -12,9 +11,10 @@ pub enum CursorStyle {
 pub type ModeEventResult = Result<Option<Box<dyn Mode>>, Error>;
 
 pub trait Mode : fmt::Display {
-    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult;
+    fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult;
     fn mode_tag(&self) -> ModeTag;
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Block }
+    fn cmd_line(&self) -> Option<(usize, &PieceTable)> { None }
 }
 
 pub struct NormalMode {
@@ -38,7 +38,7 @@ impl Mode for NormalMode {
         ModeTag::Normal
     }
 
-    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
+    fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
         match e {
             Event::ModifiersChanged(ms) => {
                 self.ctrl_pressed = ms.ctrl();
@@ -70,7 +70,7 @@ impl Mode for NormalMode {
                         Ok(None)
                     }
                     VirtualKeyCode::E if self.ctrl_pressed => {
-                        Ok(Some(Box::new(UserMessageInteractionMode::new(state))))
+                        Ok(Some(Box::new(UserMessageInteractionMode::new(client))))
                     }
                     _ => Ok(None) 
                 }
@@ -93,7 +93,7 @@ impl Mode for NormalMode {
                         self.pending_buf.clear();
                         match res {
                             None | Some(ModeTag::Normal) => Ok(None),
-                            Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new(state)))),
+                            Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new()))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
                                 if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
@@ -148,9 +148,12 @@ impl Mode for InsertMode {
         ModeTag::Insert
     }
 
-    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
+    fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
-        let (softtab, tabstop) = (state.config.softtab, state.config.tabstop);
+        let (softtab, tabstop) = {
+            let cfg = &client.read().unwrap().config;
+            (cfg.softtab, cfg.tabstop)
+        };
         if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
             let buf = &mut state.buffers[buffer_index];
             match e {
@@ -207,20 +210,21 @@ use piece_table::TableMutator;
 
 pub struct CommandMode {
     cursor_mutator: TableMutator,
-    commands: Vec<(regex::Regex, Rc<dyn line_command::CommandFn>)>
+    commands: Vec<(regex::Regex, Rc<dyn line_command::CommandFn>)>,
+    cursor_index: usize,
+    command_line: PieceTable
 }
 
 impl CommandMode {
-    pub fn new(state: PEditorState) -> CommandMode {
+    pub fn new() -> CommandMode {
         use regex::Regex;
         use line_command::*;
         let mut pt = PieceTable::default();
         let cursor_mutator = pt.insert_mutator(0);
-        let mut state = state.write().unwrap();
-        assert!(state.command_line.is_none());
-        state.command_line = Some((0, pt));
         CommandMode {
             cursor_mutator,
+            command_line: pt,
+            cursor_index: 0,
             commands: vec![
                 (Regex::new("^test (.*)").unwrap(), Rc::new(TestCommand)),
                 (Regex::new(r#"^e\s+(?:(?P<server_name>\w+):)?(?P<path>.*)"#).unwrap(), Rc::new(EditFileCommand)),
@@ -240,58 +244,56 @@ impl Mode for CommandMode {
     fn cursor_style(&self) -> CursorStyle {
         CursorStyle::Box
     }
+
+    fn cmd_line(&self) -> Option<(usize, &PieceTable)> {
+        Some((self.cursor_index, &self.command_line))
+    }
     
-    fn event(&mut self, e: Event, state: PEditorState) 
+    fn event(&mut self, e: Event, cs: PClientState, es: PEditorState) 
         -> ModeEventResult
     {
-        let mut pstate = state.write().unwrap();
-        if let Some((cursor_index, pending_command)) = pstate.command_line.as_mut() {
-            match e {
-                Event::ReceivedCharacter(c) if !c.is_control() => {
-                    self.cursor_mutator.push_char(pending_command, c);
-                    *cursor_index += 1;
-                    Ok(None)
-                },
-                Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
-                    match vk {
-                        VirtualKeyCode::Left => {
-                            *cursor_index = cursor_index.saturating_sub(1);
-                            self.cursor_mutator = pending_command.insert_mutator(*cursor_index);
-                            Ok(None)
-                        },
-                        VirtualKeyCode::Right => {
-                            *cursor_index = (*cursor_index+1).max(pending_command.len());
-                            self.cursor_mutator = pending_command.insert_mutator(*cursor_index);
-                            Ok(None)
-                        },
-                        VirtualKeyCode::Back => {
-                            self.cursor_mutator.pop_char(pending_command);
-                            *cursor_index -= 1;
-                            Ok(None)
-                        },
-                        VirtualKeyCode::Return => {
-                            let cmdstr = pstate.command_line.take().unwrap().1.text();
-                            if let Some((cmdix, args)) = self.commands.iter().enumerate()
-                                .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
-                            {
-                                let cmd = self.commands[cmdix].1.clone();
-                                drop(pstate);
-                                cmd.process(state.clone(), &args)
-                            } else {
-                                Err(Error::InvalidCommand(cmdstr))
-                            }
+        let pending_command = &mut self.command_line;
+        match e {
+            Event::ReceivedCharacter(c) if !c.is_control() => {
+                self.cursor_mutator.push_char(pending_command, c);
+                self.cursor_index += 1;
+                Ok(None)
+            },
+            Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
+                match vk {
+                    VirtualKeyCode::Left => {
+                        self.cursor_index = self.cursor_index.saturating_sub(1);
+                        self.cursor_mutator = pending_command.insert_mutator(self.cursor_index);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Right => {
+                        self.cursor_index = (self.cursor_index+1).max(pending_command.len());
+                        self.cursor_mutator = pending_command.insert_mutator(self.cursor_index);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Back => {
+                        self.cursor_mutator.pop_char(pending_command);
+                        self.cursor_index -= 1;
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Return => {
+                        let cmdstr = self.command_line.text();
+                        if let Some((cmdix, args)) = self.commands.iter().enumerate()
+                            .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
+                        {
+                            let cmd = self.commands[cmdix].1.clone();
+                            cmd.process(cs, es, &args)
+                        } else {
+                            Err(Error::InvalidCommand(cmdstr))
                         }
-                        VirtualKeyCode::Escape => {
-                            pstate.command_line = None;
-                            Ok(Some(Box::new(NormalMode::new())))
-                        },
-                        _ => Ok(None)
                     }
-                },
-                _ => Ok(None)
-            }
-        } else {
-            Err(Error::InvalidCommand("".into()))
+                    VirtualKeyCode::Escape => {
+                        Ok(Some(Box::new(NormalMode::new())))
+                    },
+                    _ => Ok(None)
+                }
+            },
+            _ => Ok(None)
         }
     }
 }
@@ -305,7 +307,7 @@ impl fmt::Display for CommandMode {
 pub struct UserMessageInteractionMode;
 
 impl UserMessageInteractionMode {
-    fn new(state: PEditorState) -> UserMessageInteractionMode {
+    fn new(state: PClientState) -> UserMessageInteractionMode {
         let mut s = state.write().unwrap();
         s.selected_usrmsg = s.usrmsgs.len()-1;
         UserMessageInteractionMode
@@ -321,7 +323,7 @@ impl Mode for UserMessageInteractionMode {
         CursorStyle::Box
     }
 
-    fn event(&mut self, e: Event, state: PEditorState) -> ModeEventResult {
+    fn event(&mut self, e: Event, state: PClientState, _: PEditorState) -> ModeEventResult {
         match e {
             Event::ReceivedCharacter(c) if c.is_digit(10) => {
                 let sel = c.to_digit(10).unwrap() as usize;
