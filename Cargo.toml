@@ -2,6 +2,7 @@
 members = [
     "pk-common",
     "pk-server",
-    "pk-client"
+    "pk-client",
+    "uproc"
 ]
 
