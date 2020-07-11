@@ -35,6 +35,97 @@ impl Buffer {
         }
     }
 
+    pub fn sense_indent_level(&self, at: usize, config: &crate::config::Config) -> usize {
+        let mut i = self.current_start_of_line(at);
+        let mut indent_level = 0;
+        if config.softtab {
+            let mut space_counter = 0;
+            loop {
+                match self.text.char_at(i) {
+                    Some(' ') => {
+                        space_counter += 1;
+                        if space_counter == 4 {
+                            space_counter = 0;
+                            indent_level += 1;
+                        }
+                    },
+                    Some('\t') => indent_level += 1,
+                    Some(_) | None => break,
+                }
+                i += 1;
+            }
+        } else {
+            loop {
+                match self.text.char_at(i) {
+                    Some('\t') => indent_level += 1,
+                    Some(_) | None => break
+                }
+                i += 1;
+            }
+        }
+        indent_level
+    }
+
+    pub fn indent_with_mutator(&mut self, ins: &mut crate::piece_table::TableMutator, count: usize, config: &crate::config::Config) -> usize {
+        if config.softtab {
+            for _ in 0..(count*config.tabstop) {
+                ins.push_char(&mut self.text, ' ');
+            }
+            ins.finish(&mut self.text);
+            count * config.tabstop
+        } else {
+            for _ in 0..count {
+                ins.push_char(&mut self.text, '\t');
+            }
+            count
+        }
+    }
+
+    pub fn indent(&mut self, at: usize, count: usize, config: &crate::config::Config) -> usize {
+        if config.softtab {
+            let mut ins = self.text.insert_mutator(at);
+            for _ in 0..(count*config.tabstop) {
+                ins.push_char(&mut self.text, ' ');
+            }
+            ins.finish(&mut self.text);
+            count * config.tabstop
+        } else {
+            for _ in 0..count {
+                self.text.insert_range("\t", at);
+            }
+            count
+        }
+    }
+
+    pub fn undent(&mut self, at: usize, count: usize, config: &crate::config::Config) {
+        if config.softtab { 
+            let mut spaces_left = count * config.tabstop;
+            loop {
+                match self.text.char_at(at) {
+                    Some(c) if c.is_whitespace() => {
+                        self.text.delete_range(at, at+1);
+                        spaces_left -= 1;
+                    }
+                    Some('\t') => {
+                        self.text.delete_range(at, at+1);
+                        spaces_left -= config.tabstop;
+                    }
+                    Some(_) | None => break
+                }
+                if spaces_left == 0 { break; }
+            }
+        } else {
+            for _ in 0..count {
+                match self.text.char_at(at) {
+                    Some('\t') => {
+                        self.text.delete_range(at, at+1);
+                    }
+                    Some(_) | None => break
+                }
+            }
+        }
+    }
+
     pub fn next_line_index(&self, at: usize) -> usize {
         self.text.index_of('\n', at).map(|i| i+1)
             .unwrap_or(self.text.len())

@@ -1,0 +1,16 @@
+
+[[filetype]]
+name = "rust"
+ext = ["rs"]
+
+[[filetype]]
+name = "toml"
+ext = ["toml"]
+
+[[filetype]]
+name = "js"
+ext = ["js"]
+
+[[filetype]]
+name = "cpp "
+ext = ["h", "hpp", "cpp"]

@@ -109,10 +109,16 @@ impl runic::App for PkApp {
             ClientState::connect_to_server(client.clone(), name.clone(), url);
         }
 
-        for farg in cargs.free().unwrap() {
+        let free_args = cargs.free().unwrap();
+        for farg in free_args.iter() {
             ClientState::open_buffer(client.clone(), estate.clone(), "local".into(), std::path::PathBuf::from(farg),
             |estate, cstate, buffer_index| {
-                Pane::split(&mut estate.panes, 0, true, 0.5, PaneContent::Buffer { buffer_index, viewport_start: 0 });
+                let cnt = PaneContent::Buffer { buffer_index, viewport_start: 0 };
+                if estate.panes.len() == 1 {
+                    estate.current_pane_mut().content = cnt;
+                } else {
+                    Pane::split(&mut estate.panes, 0, true, 0.5, cnt);
+                }
             });
         }
 
@@ -131,7 +137,7 @@ impl runic::App for PkApp {
         cmd_txr.cursor_style = CursorStyle::Line;
         cmd_txr.highlight_line = false;
         PkApp {
-            mode: Box::new(mode::CommandMode::new()),
+            mode: if free_args.len() == 0 { Box::new(mode::CommandMode::new()) } else { Box::new(mode::NormalMode::new()) },
             fnt, txr, cmd_txr, state: estate, client, synh: None, last_highlighted_version: 0,
             highlighter
         }
@@ -244,11 +250,13 @@ impl runic::App for PkApp {
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
                     let mut vp = viewport_start;
                     self.txr.ensure_line_visible(&mut vp, curln, editor_bounds);
-                    if buf.highlights.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() {
+                    if buf.highlights.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() 
+                        || self.mode.mode_tag() == ModeTag::Insert
+                    {
                         let hstart = std::time::Instant::now();
                         buf.highlights = Some(self.highlighter.compute_highlighting(buf));
                         self.last_highlighted_version = buf.text.most_recent_action_id();
-                        println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
+                        // println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
                     }
                     self.txr.paint(rx, &buf.text, vp, buf.cursor_index,
                         &config, editor_bounds, buf.highlights.as_ref());

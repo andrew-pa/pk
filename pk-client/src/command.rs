@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::collections::HashMap;
 
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Operator {
     Delete,
     Change,
@@ -16,12 +16,13 @@ pub enum Operator {
     ReplaceChar(char)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Command {
     Move(Motion),
     Repeat { count: usize },
     Undo { count: usize },
     Redo { count: usize },
+    JoinLine { count: usize },
     Put {
         count: usize,
         source_register: char,
@@ -91,6 +92,7 @@ impl Command {
             Some('.') => return Ok(Command::Repeat { count: opcount.unwrap_or(1) }),
             Some('u') => return Ok(Command::Undo { count: opcount.unwrap_or(1) }),
             Some('U') => return Ok(Command::Redo { count: opcount.unwrap_or(1) }),
+            Some('J') => return Ok(Command::JoinLine { count: opcount.unwrap_or(1) }),
             Some('d') => Some(Operator::Delete),
             Some('c') => Some(Operator::Change),
             Some('y') => Some(Operator::Yank),
@@ -135,8 +137,46 @@ impl Command {
             Ok(Command::Move(mo))
         }
     }
+
+    fn count_mut(&mut self) -> Option<&mut usize> {
+        match self {
+            Command::JoinLine { count } => Some(count),
+            Command::Put { count, .. } => Some(count),
+            Command::Edit { op_count, .. } => Some(op_count),
+            _ => None
+        }
+    }
      
-    pub fn execute(&self, state: &mut editor_state::EditorState) -> Result<Option<ModeTag>, Error> {
+    pub fn execute(&self, state: &mut editor_state::EditorState, client: PClientState) -> Result<Option<ModeTag>, Error> {
+        if let Command::Repeat { count } = self {
+            let mut cmd = state.last_command.ok_or_else(|| Error::InvalidCommand("no previous command".into()))?;
+            dbg!(cmd);
+            if let Command::ChangeMode(ModeTag::Insert) = cmd {
+                if let Some(buf) = state.current_buffer_index() {
+                    let buf = &mut state.buffers[buf];
+                    let inserted_piece = match buf.text.history.last() {
+                        Some(act) => {
+                            if let piece_table::Change::Insert { new, .. } = act.changes[if act.changes.len() == 1 { 0 } else { 1 }] {
+                                new
+                            } else {
+                                panic!();
+                            }
+                        },
+                        None => panic!()
+                    };
+                    dbg!(inserted_piece);
+                    for _ in 0..*count {
+                        buf.text.insert_raw_piece(buf.cursor_index, inserted_piece.clone());
+                        buf.cursor_index += inserted_piece.length;
+                    }
+                }
+                return Ok(None);
+            }
+            else {
+                cmd.count_mut().map(|c| *c = *count);
+                return cmd.execute(state, client);
+            }
+        }
         match self {
             Command::Move(mo) => {
                 if let Some(buf) = state.current_buffer_mut() {
@@ -146,6 +186,7 @@ impl Command {
                 Ok(None)
             },
             Command::Put { count, source_register, clear_register } => {
+                state.last_command = Some(*self);
                 if let Some(buf) = state.current_buffer_index() {
                     let buf = &mut state.buffers[buf];
                     let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
@@ -165,7 +206,18 @@ impl Command {
                 }
                 Ok(None)
             },
+            Command::JoinLine { count } => {
+                state.last_command = Some(*self);
+                if let Some(buf) = state.current_buffer_mut() {
+                    for _ in 0..*count {
+                        let ln = buf.next_line_index(buf.cursor_index);
+                        buf.text.delete_range(ln-1, ln);
+                    }
+                }
+                Ok(None)
+            },
             Command::Edit { op, op_count, mo, target_register } => {
+                state.last_command = Some(*self);
                 let buf = if let Some(b) = state.current_buffer_index() { 
                     &mut state.buffers[b]
                 } else { return Err(Error::InvalidCommand("".into())); };
@@ -188,7 +240,7 @@ impl Command {
                                             println!("{}", r.end);
                                             r.end = r.end.saturating_sub(1);
                                         }
-                                }
+                            }
                             state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
                             buf.text.delete_range(r.start, r.end);
                         }
@@ -235,13 +287,27 @@ impl Command {
                         Ok(Some(*mode))
                     }
                     Operator::Indent(direction) => {
+                        let r = mo.range(buf, buf.cursor_index, *op_count);
+                        let mut ln = buf.current_start_of_line(r.start);
+                        while ln <= r.end {
+                            if *direction == Direction::Forward {
+                                buf.indent(ln, 1, &client.read().unwrap().config);
+                            } else {
+                                buf.undent(ln, 1, &client.read().unwrap().config);
+                            }
+                            ln = buf.next_line_index(ln);
+                        }
                         Ok(None)
                     }, 
-                    _ => unimplemented!()
                 }
             },
 
-            &Command::ChangeMode(mode) => Ok(Some(mode)),
+            &Command::ChangeMode(mode) => {
+                if mode == ModeTag::Insert {
+                    state.last_command = Some(*self);
+                }
+                Ok(Some(mode))
+            },
             Command::Leader(c) => match c {
                 'h' | 'j' | 'k' | 'l' => {
                     if let Some(ng) = state.current_pane().neighbors[match c {

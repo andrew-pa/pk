@@ -172,7 +172,7 @@ impl Pane {
                 }
             }
         }
-        panic!();
+        panic!("tried to remove nonexistant pane");
     }
 }
 
@@ -319,6 +319,8 @@ pub struct EditorState {
 
     pub panes: BTreeMap<usize, Pane>,
     pub current_pane: usize,
+
+    pub last_command: Option<crate::command::Command>
 }
 
 pub struct ClientState {
@@ -334,7 +336,7 @@ pub struct ClientState {
     pub config: Config
 }
 
-impl Default for ClientState{
+impl Default for ClientState {
     fn default() -> ClientState {
         ClientState::with_config(Config::default())
     }
@@ -347,6 +349,7 @@ impl EditorState {
             panes: BTreeMap::new(),
             current_pane: 0,
             registers: BTreeMap::new(),
+            last_command: None
         }
     }
 

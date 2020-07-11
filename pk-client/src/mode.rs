@@ -82,13 +82,13 @@ impl Mode for NormalMode {
                 match Command::parse(&self.pending_buf) {
                     Ok(cmd) => {
                         let res = {
-                            match cmd.execute(&mut state.write().unwrap()) {
-                            Ok(r) => r,
-                            Err(e) => {
-                                self.pending_buf.clear();
-                                return Err(e);
-                            }
-                        } 
+                            match cmd.execute(&mut state.write().unwrap(), client) {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    self.pending_buf.clear();
+                                    return Err(e);
+                                }
+                            } 
                         };
                         self.pending_buf.clear();
                         match res {
@@ -150,10 +150,6 @@ impl Mode for InsertMode {
 
     fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
         let mut state = state.write().unwrap();
-        let (softtab, tabstop) = {
-            let cfg = &client.read().unwrap().config;
-            (cfg.softtab, cfg.tabstop)
-        };
         if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
             let buf = &mut state.buffers[buffer_index];
             match e {
@@ -171,6 +167,11 @@ impl Mode for InsertMode {
                 } => {
                     match vk {
                         VirtualKeyCode::Tab => {
+                            let (softtab, tabstop) = {
+                                let cfg = &client.read().unwrap().config;
+                                (cfg.softtab, cfg.tabstop)
+                            };
+
                             if softtab || !self.shift_pressed {
                                 for _ in 0..tabstop {
                                     self.tmut.push_char(&mut buf.text, ' ');
@@ -190,7 +191,8 @@ impl Mode for InsertMode {
                         },
                         VirtualKeyCode::Return => {
                             self.tmut.push_char(&mut buf.text, '\n');
-                            buf.cursor_index += 1;
+                            let cfg = &client.read().unwrap().config;
+                            buf.cursor_index += 1 + buf.indent_with_mutator(&mut self.tmut, buf.sense_indent_level(buf.cursor_index, cfg), cfg);
                             Ok(None)
                         }
                         VirtualKeyCode::Escape => {

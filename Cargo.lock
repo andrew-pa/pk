@@ -1039,6 +1039,7 @@ dependencies = [
  "serde_cbor",
  "syntect",
  "toml",
+ "uproc",
 ]
 
 [[package]]
@@ -1450,6 +1451,7 @@ name = "uproc"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
+ "futures",
  "num_cpus",
 ]
 

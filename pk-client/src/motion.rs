@@ -25,7 +25,7 @@ impl CharClassify for char {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TextObject {
     Word, BigWord, Paragraph, Block(char)
 }
@@ -134,7 +134,7 @@ impl TextObject {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MotionType {
     Char(Direction),
     Word(Direction), // words
@@ -158,7 +158,7 @@ pub enum MotionType {
     Inner(TextObject)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Motion {
     pub count: usize,
     pub mo: MotionType,

@@ -35,8 +35,8 @@ pub enum Change {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Action {
-    changes: Vec<Change>,
-    id: usize
+    pub changes: Vec<Change>,
+    pub id: usize
 }
 
 impl Action {
@@ -96,7 +96,15 @@ impl TableMutator {
     }
 
     pub fn finish(&self, pt: &mut PieceTable) {
-        pt.history.push(self.action.clone());
+        // slightly jank fix to make sure that the history item gets updated with the new piece length
+        let ix = if self.action.changes.len() == 1 { 0 } else { 1 };
+        let mut action = self.action.clone();
+        if let Change::Insert { new, .. } = &mut action.changes[ix] {
+            *new = pt.pieces[self.piece_ix];
+        } else {
+            panic!();
+        }
+        pt.history.push(action);
     }
 }
 
@@ -209,15 +217,20 @@ impl<'table> PieceTable {
             0
         }
         else {
-            self.history[self.history.len() - 1].id
+            self.history.last().unwrap().id
         }
     }
 
     pub fn insert_range(&mut self, s: &str, index: usize) {
         if s.len() == 0 { return; }
-        let mut ix = 0usize;
         let new_piece = Piece { source: self.sources.len(), start: 0, length: s.len() };
         self.sources.push(String::from(s));
+        self.insert_raw_piece(index, new_piece);
+    }
+
+    pub fn insert_raw_piece(&mut self, index: usize, new_piece: Piece) {
+        assert!(new_piece.source < self.sources.len());
+        let mut ix = 0usize;
         let mut action = Action::new(self);
         for (i,p) in self.pieces.iter().enumerate() {
             //println!("{} {:?}", i, p);
@@ -243,6 +256,7 @@ impl<'table> PieceTable {
         }
         self.history.push(action);
     }
+
 
     pub fn insert_mutator(&mut self, index: usize) -> TableMutator {
         let mut ix = 0usize;

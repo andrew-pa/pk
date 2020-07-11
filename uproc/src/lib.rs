@@ -39,7 +39,7 @@ impl Context {
     /// Spawn a process, returns the process id
     /// If `supervise` is true, then when this process exits either normally or by an error, the
     /// `ProcessResult` will be sent back to this process as a message from the spawned process
-    pub fn spawn(&self, p: impl Process + Send + 'static, supervise: bool) -> Pid {
+    pub fn spawn_sup(&self, p: impl Process + Send + 'static, supervise: bool) -> Pid {
         let pid = self.next_pid.fetch_add(1, Ordering::SeqCst); //could this ordering be relaxed?
         let (tx, rx) = crossbeam::channel::unbounded::<Msg>();
         self.inj.push(ProcessTask {
@@ -51,21 +51,26 @@ impl Context {
         self.process_senders.write().unwrap().insert(pid, tx.clone());
         pid
     }
+    
+    /// Spawn an unsupervised process
+    pub fn spawn(&self, p: impl Process + Send + 'static) -> Pid {
+        self.spawn_sup(p, false)
+    }
 
     /// Spawn a future on the scheduler and run it to completion asynchronously
-    pub fn spawn_future<F>(&self, fut: F, supervise: bool) -> Pid
-        where F: Future<Output=()> + Send + 'static + std::marker::Unpin 
+    pub fn spawn_future<F>(&self, fut: F) -> Pid
+        where F: Future<Output=()> + Send + 'static
     {
-        let pid = self.spawn(FuturePollOnRecv { fut, send_out: false }, supervise);
+        let pid = self.spawn(FuturePollOnRecv { fut, send_out: false });
         self.send(pid, ());
         pid
     }
 
     /// Spawn a future on the scheduler that will send a message back of type `Out` when it is finished
-    pub fn future_message<Out: Send + 'static, F>(&self, fut: F, supervise: bool) -> Pid
-        where F: Future<Output=Out> + Send + 'static + std::marker::Unpin 
+    pub fn future_message<Out: Send + 'static, F>(&self, fut: F) -> Pid
+        where F: Future<Output=Out> + Send + 'static
     {
-        let pid = self.spawn(FuturePollOnRecv { fut, send_out: true }, supervise);
+        let pid = self.spawn(FuturePollOnRecv { fut, send_out: true });
         self.send(pid, ());
         pid
     }
@@ -131,7 +136,7 @@ impl<T> Process for T where T: FnMut(&mut Context, Pid, &dyn Any)->ProcessResult
     }
 }
 
-struct FuturePollOnRecv<Out: Send + 'static, F: Future<Output=Out> + std::marker::Unpin> {
+struct FuturePollOnRecv<Out: Send + 'static, F: Future<Output=Out>> {
     fut: F,
     send_out: bool
 }
@@ -149,20 +154,20 @@ impl futures::task::ArcWake for FuturePollOnRecvWaker {
     }
 }
 
-impl <Out: Send + 'static, F: Future<Output=Out> + std::marker::Unpin> Process for FuturePollOnRecv<Out, F> {
+impl <Out: Send + 'static, F: Future<Output=Out>> Process for FuturePollOnRecv<Out, F> {
     fn process_message(&mut self, cx: &mut Context, sender: Pid, msg: &dyn Any) -> ProcessResult {
-        use futures::task::{Poll, Context};
-        let fut = &mut self.fut;
-        futures::pin_mut!(fut);
-        let wak = futures::task::waker(msg.downcast_ref::<Arc<FuturePollOnRecvWaker>>()
-            .map_or_else(|| Arc::new(FuturePollOnRecvWaker{cx: cx.clone(), target: sender}), Clone::clone));
-        match Future::poll(fut, &mut Context::from_waker(&wak)) {
-            Poll::Pending => Ok(ProcessState::Waiting),
-            Poll::Ready(v) => {
-                if self.send_out { cx.send(sender, v); }
-                Ok(ProcessState::Finished)
-            }
-        }
+        // use futures::task::{Poll, Context};
+        // let fut = &mut self.fut;
+        // let wak = futures::task::waker(msg.downcast_ref::<Arc<FuturePollOnRecvWaker>>()
+        //     .map_or_else(|| Arc::new(FuturePollOnRecvWaker{cx: cx.clone(), target: sender}), Clone::clone));
+        // match Future::poll(std::pin::Pin::new(fut), &mut Context::from_waker(&wak)) {
+        //     Poll::Pending => Ok(ProcessState::Waiting),
+        //     Poll::Ready(v) => {
+        //         if self.send_out { cx.send(sender, v); }
+        //         Ok(ProcessState::Finished)
+        //     }
+        // }
+        Ok(ProcessState::Finished)
     }
 }
 
