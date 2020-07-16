@@ -5,16 +5,18 @@ use crate::mode::CursorStyle;
 use crate::config::{Config, Colorscheme, ColorschemeSel};
 
 trait CursorStyleDraw {
-    fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect);
+    fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect, col: Color);
 }
 
 impl CursorStyleDraw for CursorStyle {
-    fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect) {
+    fn paint(&self, rx: &mut RenderContext, char_bounds: &Rect, em_bounds: &Rect, col: Color) {
+        rx.set_color(col);
         match self {
             CursorStyle::Line => {
                 rx.fill_rect(Rect::xywh(char_bounds.x-1.0, char_bounds.y, 2.0, char_bounds.h.max(em_bounds.h)));
             },
             CursorStyle::Block => {
+                rx.set_color(col.with_alpha(0.7));
                 rx.fill_rect(Rect::xywh(char_bounds.x, char_bounds.y, char_bounds.w.max(em_bounds.w), char_bounds.h.max(em_bounds.h)));
             },
             CursorStyle::Box => {
@@ -104,16 +106,26 @@ impl PieceTableRenderer {
         if *viewport_start >= line { *viewport_start = line.saturating_sub(1); }
         if viewport_end <= line { *viewport_start += line - viewport_end; }
     }
+    
+    fn paint_line_numbers(&mut self, rx: &mut RenderContext, config: &Config, cur_pos: &mut Point, line_num: usize) {
+        rx.set_color(config.colors.quarter_gray);
+        rx.draw_text(Rect::xywh(cur_pos.x, cur_pos.y, self.em_bounds.w*5.0, self.em_bounds.h),
+            &format!("{:5}", line_num), &self.fnt);
+        rx.set_color(config.colors.foreground);
+        cur_pos.x += self.em_bounds.w * 7.0;
+    }
 
     pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, viewport_start: usize, cursor_index: usize,
-                 config: &Config, bounds: Rect, highlights: Option<&Vec<Highlight>>)
+                 config: &Config, bounds: Rect, highlights: Option<&Vec<Highlight>>, line_numbers: bool)
     {
         rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
         let mut cur_pos = Point::xy(bounds.x, bounds.y); 
+        if line_numbers { cur_pos.x += self.em_bounds.w * 7.0; }
         let mut line_num = 0usize;
         let viewport_end = self.viewport_end(viewport_start, &bounds);
         let table_len = table.len();
+        //self.paint_start_of_line(rx, &mut cur_pos, line_num);
         for p in table.pieces.iter() {
             let src = &table.sources[p.source][p.start..(p.start+p.length)];
             let mut lni = src.split('\n').peekable(); 
@@ -147,7 +159,7 @@ impl PieceTableRenderer {
                 if cursor_index >= global_index && cursor_index < global_index+ln.len() ||
                     ((lni.peek().is_some() || cursor_index == table_len) && cursor_index == global_index+ln.len()) {
                     let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);
-                    self.cursor_style.paint(rx, &curbounds, &self.em_bounds);
+                    self.cursor_style.paint(rx, &curbounds, &self.em_bounds, config.colors.foreground);
                     if self.highlight_line {
                         rx.set_color(config.colors.half_gray.with_alpha(0.1));
                         rx.fill_rect(Rect::xywh(bounds.x, cur_pos.y, bounds.w, self.em_bounds.h));
@@ -161,6 +173,7 @@ impl PieceTableRenderer {
                     // new line
                     line_num+=1;
                     cur_pos.x = bounds.x;
+                    if line_numbers { self.paint_line_numbers(rx, config, &mut cur_pos, line_num); }
                     cur_pos.y += text_size.h.min(self.em_bounds.h);
                     global_index += 1;
                     if line_num > viewport_end { break; }

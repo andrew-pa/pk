@@ -280,7 +280,9 @@ impl Command {
                             Direction::Backward => buf.current_start_of_line(buf.cursor_index)
                         };
                         buf.text.insert_range("\n", idx);
-                        buf.cursor_index = idx;
+                        let cfg = &client.read().unwrap().config;
+                        let indent_level = buf.sense_indent_level(buf.cursor_index, cfg);
+                        buf.cursor_index = idx + buf.indent(idx, indent_level, cfg);
                         if idx == buf.text.len()-1 {
                             buf.cursor_index = 1;
                         }
@@ -289,7 +291,8 @@ impl Command {
                     Operator::Indent(direction) => {
                         let r = mo.range(buf, buf.cursor_index, *op_count);
                         let mut ln = buf.current_start_of_line(r.start);
-                        while ln <= r.end {
+                        while ln < r.end.saturating_sub(2) {
+                            println!("ln = {}, r = {:?}", ln, r);
                             if *direction == Direction::Forward {
                                 buf.indent(ln, 1, &client.read().unwrap().config);
                             } else {
@@ -323,7 +326,7 @@ impl Command {
                 },
                 's' | 'v' => {
                     let nc = state.current_pane().content.clone();
-                    Pane::split(&mut state.panes, state.current_pane, *c == 's', 0.5, nc);
+                    Pane::split(&mut state.panes, state.current_pane, *c == 'v', 0.5, nc);
                     Ok(None)
                 },
                 'x' => {

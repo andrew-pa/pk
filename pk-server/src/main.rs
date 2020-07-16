@@ -240,7 +240,7 @@ impl AutosaveWorker {
 
     fn run(&mut self) {
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_secs(1));
             let srv = self.server.read().unwrap();
             for (file_id, file) in srv.open_files.iter() {
                 let disk_version = self.disk_versions.entry(*file_id).or_insert(0);

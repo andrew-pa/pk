@@ -380,7 +380,10 @@ impl<'table> PieceTable {
             action.push(Change::Delete { piece_index: *i,  old: self.pieces[*i] });
         }
 
-        self.pieces = self.pieces.iter().enumerate().filter(|(i, _)| !mid_pieces.contains(i)).map(|(_, p)| p.clone()).collect();
+        self.pieces = self.pieces.iter()
+            .enumerate()
+            .filter(|(i, _)| !mid_pieces.contains(i))
+            .map(|(_, p)| p.clone()).collect();
 
         self.history.push(action);
     }

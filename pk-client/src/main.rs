@@ -241,7 +241,7 @@ impl runic::App for PkApp {
                     rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
                     rx.set_color(if active { config.colors.accent[1] } else { config.colors.three_quarter_gray });
                     rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 1.0, bounds.w, 1000.0),
-                        &format!("{} | ln {} col {} | {}:{} v{}{} [{}]", self.mode, curln,
+                        &format!("{} | ln {} col {} | {}:{} v{}{} [{}]", self.mode, curln + 1,
                             buf.column_for_index(buf.cursor_index),
                             buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
                             if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
@@ -259,18 +259,18 @@ impl runic::App for PkApp {
                         // println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
                     }
                     self.txr.paint(rx, &buf.text, vp, buf.cursor_index,
-                        &config, editor_bounds, buf.highlights.as_ref());
-                    state.panes.get_mut(&i).unwrap().content = PaneContent::Buffer { buffer_index, viewport_start: vp };
+                        &config, editor_bounds, buf.highlights.as_ref(), true);
 
-                    // let mut y = 30.0;
-                    // let mut global_index = 0;
-                    // for p in buf.text.pieces.iter() {
-                    //     rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0),
-                    //         &format!("{}| \"{}\"", global_index, 
-                    //             &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
-                    //     global_index += p.length;
-                    //     y += 16.0;
-                    // }
+                     /*let mut y = 30.0;
+                     let mut global_index = 0;
+                     for p in buf.text.pieces.iter() {
+                         rx.draw_text(Rect::xywh(rx.bounds().w / 2.0, y, 1000.0, 1000.0),
+                             &format!("{}| \"{}\"", global_index, 
+                                 &buf.text.sources[p.source][p.start..p.start+p.length].escape_debug()), &self.fnt);
+                         global_index += p.length;
+                         y += 16.0;
+                     }*/
+                    state.panes.get_mut(&i).unwrap().content = PaneContent::Buffer { buffer_index, viewport_start: vp };
                 },
                 PaneContent::Empty => {
                     rx.set_color(config.colors.accent[5]);
@@ -286,7 +286,8 @@ impl runic::App for PkApp {
             rx.fill_rect(Rect::xywh(0.0, self.txr.em_bounds.h+2.0, rx.bounds().w, self.txr.em_bounds.h+2.0));
             rx.set_color(config.colors.three_quarter_gray);
             self.cmd_txr.paint(rx, pending_cmd, 0, cmd_cur_index, &config,
-                               Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0), None);
+                               Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0),
+                               None, false);
         }
 
         let end = std::time::Instant::now();

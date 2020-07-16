@@ -67,11 +67,11 @@ impl Buffer {
     }
 
     pub fn indent_with_mutator(&mut self, ins: &mut crate::piece_table::TableMutator, count: usize, config: &crate::config::Config) -> usize {
+        if count == 0 { return 0; }
         if config.softtab {
             for _ in 0..(count*config.tabstop) {
                 ins.push_char(&mut self.text, ' ');
             }
-            ins.finish(&mut self.text);
             count * config.tabstop
         } else {
             for _ in 0..count {
@@ -82,6 +82,7 @@ impl Buffer {
     }
 
     pub fn indent(&mut self, at: usize, count: usize, config: &crate::config::Config) -> usize {
+        if count == 0 { return 0; }
         if config.softtab {
             let mut ins = self.text.insert_mutator(at);
             for _ in 0..(count*config.tabstop) {
@@ -98,6 +99,7 @@ impl Buffer {
     }
 
     pub fn undent(&mut self, at: usize, count: usize, config: &crate::config::Config) {
+        if count == 0 { return; }
         if config.softtab { 
             let mut spaces_left = count * config.tabstop;
             loop {
@@ -125,6 +127,9 @@ impl Buffer {
             }
         }
     }
+    
+    //prev line\nthis is a line\nnext line
+    //^LLL       ^CSoL           ^NL
 
     pub fn next_line_index(&self, at: usize) -> usize {
         self.text.index_of('\n', at).map(|i| i+1)

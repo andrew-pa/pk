@@ -46,7 +46,7 @@ impl Server {
                thread_pool: &futures::executor::ThreadPool,
                res: nng::AioResult) {
         use nng::AioResult;
-        println!("process {:?}", res);
+        // println!("process {:?}", res);
         match res {
             AioResult::Send(Ok(_)) => loop {
                 match cx.recv(aio) {

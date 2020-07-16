@@ -207,7 +207,21 @@ impl Mode for InsertMode {
         } else { panic!(); }
     }
 }
+/*
+pub struct VisualMode {
+}
 
+impl Mode for VisualMode {
+    fn cursor_style(&self) -> CursorStyle { CursorStyle::Block }
+    
+    fn mode_tag(&self) -> ModeTag {
+        ModeTag::Visual
+    }
+    
+    fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
+    }
+}
+*/
 use piece_table::TableMutator;
 
 pub struct CommandMode {
@@ -358,6 +372,10 @@ impl Mode for UserMessageInteractionMode {
                         } else {
                             Ok(None)
                         }
+                    },
+                    VirtualKeyCode::E => {
+                        state.write().unwrap().usrmsgs.clear();
+                        Ok(Some(Box::new(NormalMode::new())))
                     },
                     VirtualKeyCode::J => {
                         let mut s = state.write().unwrap();
