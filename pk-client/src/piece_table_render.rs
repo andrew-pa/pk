@@ -82,12 +82,26 @@ impl PieceTableRenderer {
             layout_cashe: HashMap::new()
         }
     }
+    
+    pub fn invalidate_layout_cashe(&mut self, rn: Range<usize>) {
+        for i in rn {
+            self.layout_cashe.remove(&i);
+        }
+    }
 
-    fn viewport_end(&self, viewport_start: usize, bounds: &Rect) -> usize {
+    pub fn viewport_end(&self, viewport_start: usize, bounds: &Rect) -> usize {
         viewport_start + ((bounds.h / self.em_bounds.h).floor() as usize).saturating_sub(2)
     }
 
-    fn generate_line_layout(&self, ln: &str, global_index: usize, rx: &mut RenderContext, colors: &Colorscheme, highlights: Option<&Vec<Highlight>>) -> TextLayout {
+    fn generate_line_layout(&mut self, ln: &str, global_index: usize, rx: &mut RenderContext, colors: &Colorscheme, highlights: Option<&Vec<Highlight>>) -> TextLayout {
+        let mut hh = DefaultHasher::new();
+        ln.hash(&mut hh);
+        let ln_hash = hh.finish();
+        if let Some((cashe_line_hash, ly)) = self.layout_cashe.get(&global_index) {
+            if ln_hash == *cashe_line_hash {
+                return ly.clone();
+            }
+        }
         let layout = rx.new_text_layout(ln, &self.fnt, 10000.0, 10000.0).expect("create text layout");
         if let Some(hl) = highlights.as_ref() {
             for h in hl.iter() {
@@ -99,6 +113,7 @@ impl PieceTableRenderer {
                 h.sort.apply_to_layout(range, rx, &layout, colors);
             }
         }
+        self.layout_cashe.insert(global_index, (ln_hash, layout.clone()));
         layout
     }
 
@@ -146,20 +161,7 @@ impl PieceTableRenderer {
                 let mut hh = DefaultHasher::new();
                 ln.hash(&mut hh);
                 let ln_hash = hh.finish();
-                let layout = if let Some((h, ly)) 
-                    = self.layout_cashe.get(&line_num)
-                {
-                    if *h != ln_hash {
-                        // generate layout
-                        let ly = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
-                        self.layout_cashe.insert(line_num, (ln_hash, ly.clone()));
-                        ly
-                    } else { ly.clone() }
-                } else {
-                    let ly = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
-                    self.layout_cashe.insert(line_num, (ln_hash, ly.clone()));
-                    ly
-                };
+                let layout = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
                 rx.draw_text_layout(cur_pos, &layout);
                 if cursor_index >= global_index && cursor_index < global_index+ln.len() ||
                     ((lni.peek().is_some() || cursor_index == table_len) && cursor_index == global_index+ln.len()) {

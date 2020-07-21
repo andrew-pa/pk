@@ -11,7 +11,8 @@ pub struct Buffer {
     pub version: usize,
     pub currently_in_conflict: bool,
     pub cursor_index: usize,
-    pub highlights: Option<Vec<crate::piece_table_render::Highlight>>
+    pub highlights: Option<Vec<crate::piece_table_render::Highlight>>,
+    pub last_highlighted_action_id: usize
 }
 
 impl Buffer {
@@ -21,7 +22,8 @@ impl Buffer {
             version: 0, file_id: protocol::FileId(0), cursor_index: 0,
             server_name: "".into(),
             path: "".into(), currently_in_conflict: false, format: protocol::TextFormat::default(),
-            highlights: None
+            highlights: None,
+            last_highlighted_action_id: 0
         }
     }
 
@@ -31,7 +33,8 @@ impl Buffer {
             file_id, version, cursor_index: 0,
             server_name, path,
             currently_in_conflict: false, format,
-            highlights: None
+            highlights: None,
+            last_highlighted_action_id: 0
         }
     }
 

@@ -112,8 +112,8 @@ impl runic::App for PkApp {
         let free_args = cargs.free().unwrap();
         for farg in free_args.iter() {
             ClientState::open_buffer(client.clone(), estate.clone(), "local".into(), std::path::PathBuf::from(farg),
-            |estate, cstate, buffer_index| {
-                let cnt = PaneContent::Buffer { buffer_index, viewport_start: 0 };
+            |estate, _, buffer_index| {
+                let cnt = PaneContent::buffer(buffer_index);
                 if estate.panes.len() == 1 {
                     estate.current_pane_mut().content = cnt;
                 } else {
@@ -170,7 +170,7 @@ impl runic::App for PkApp {
 
     fn paint(&mut self, rx: &mut RenderContext) {
         let start = std::time::Instant::now();
-        let mut client = self.client.read().unwrap();
+        let client = self.client.read().unwrap();
         let mut state = self.state.write().unwrap();
 
         let config = &client.config;
@@ -230,7 +230,7 @@ impl runic::App for PkApp {
             rx.stroke_rect(bounds, 1.0);
 
             match state.panes[&i].content {
-                PaneContent::Buffer { buffer_index, viewport_start } => {
+                PaneContent::Buffer { buffer_index, viewport_start, .. } => {
                     let buf = &mut state.buffers[buffer_index];
                     let editor_bounds = Rect::xywh(bounds.x, bounds.y + self.txr.em_bounds.h + 4.0, bounds.w,
                                                        bounds.h);
@@ -250,12 +250,13 @@ impl runic::App for PkApp {
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
                     let mut vp = viewport_start;
                     self.txr.ensure_line_visible(&mut vp, curln, editor_bounds);
-                    if buf.highlights.is_none() || self.last_highlighted_version < buf.text.most_recent_action_id() 
+                    if buf.highlights.is_none() || buf.last_highlighted_action_id < buf.text.most_recent_action_id() 
                         || self.mode.mode_tag() == ModeTag::Insert
                     {
-                        let hstart = std::time::Instant::now();
+                        //let hstart = std::time::Instant::now();
                         buf.highlights = Some(self.highlighter.compute_highlighting(buf));
-                        self.last_highlighted_version = buf.text.most_recent_action_id();
+                        buf.last_highlighted_action_id = buf.text.most_recent_action_id();
+                        self.txr.invalidate_layout_cashe(buf.current_start_of_line(buf.cursor_index) .. buf.next_line_index(buf.cursor_index));
                         // println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
                     }
                     self.txr.paint(rx, &buf.text, vp, buf.cursor_index,
@@ -270,7 +271,11 @@ impl runic::App for PkApp {
                          global_index += p.length;
                          y += 16.0;
                      }*/
-                    state.panes.get_mut(&i).unwrap().content = PaneContent::Buffer { buffer_index, viewport_start: vp };
+                    state.panes.get_mut(&i).unwrap().content = PaneContent::Buffer {
+                        buffer_index,
+                        viewport_start: vp,
+                        viewport_end: self.txr.viewport_end(vp, &editor_bounds)
+                    };
                 },
                 PaneContent::Empty => {
                     rx.set_color(config.colors.accent[5]);

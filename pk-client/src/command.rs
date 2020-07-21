@@ -2,8 +2,6 @@
 use super::*;
 use super::motion::*;
 use std::ops::Range;
-use std::collections::HashMap;
-
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Operator {
@@ -14,6 +12,12 @@ pub enum Operator {
     MoveAndEnterMode(ModeTag),
     NewLineAndEnterMode(Direction, ModeTag),
     ReplaceChar(char)
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum ViewportMotion {
+    CursorToMiddle,
+    PageUp, PageDown
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -35,6 +39,7 @@ pub enum Command {
         target_register: char,
     },
     Leader(char),
+    Viewport(ViewportMotion),
     ChangeMode(ModeTag)
 }
 
@@ -117,6 +122,13 @@ impl Command {
                 Some(c) => Ok(Command::Leader(c)),
                 None => Err(Error::IncompleteCommand)
             } },
+            Some('z') => { schars.next(); return match schars.next() {
+                Some('z') => Ok(Command::Viewport(ViewportMotion::CursorToMiddle)),
+                Some('j') => Ok(Command::Viewport(ViewportMotion::PageDown)),
+                Some('k') => Ok(Command::Viewport(ViewportMotion::PageUp)),
+                Some(c) => Err(Error::UnknownCommand(String::from(s))),
+                None => Err(Error::IncompleteCommand)
+            } },
             Some(_) => None,
             None => None
         };
@@ -185,14 +197,14 @@ impl Command {
                 }
                 Ok(None)
             },
-            Command::Put { count, source_register, clear_register } => {
+            Command::Put { count: _, source_register, clear_register } => {
                 state.last_command = Some(*self);
                 if let Some(buf) = state.current_buffer_index() {
                     let buf = &mut state.buffers[buf];
                     let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
                     // we need to check here to see if src contains a full line so that we can put it _after_ the current line
                     let insertion_point = if let Some('\n') = src.chars().last() {
-                        println!("X");
+                        //println!("X");
                         buf.next_line_index(buf.cursor_index)
                     } else {
                         buf.cursor_index
@@ -231,10 +243,7 @@ impl Command {
                 match op {
                     Operator::Delete | Operator::Change => {
                         let mut r = mo.range(buf, buf.cursor_index, *op_count);
-                        if let MotionType::An(_) = mo.mo {
-                            r.end += 1;
-                        }
-                        if let MotionType::Inner(_) = mo.mo {
+                        if mo.mo.inclusive() {
                             r.end += 1;
                         }
                         if r.start != r.end {
@@ -260,10 +269,7 @@ impl Command {
                     },
                     Operator::Yank => {
                         let mut r = mo.range(buf, buf.cursor_index, *op_count);
-                        if let MotionType::An(_) = mo.mo {
-                            r.end += 1;
-                        }
-                        if let MotionType::Inner(_) = mo.mo {
+                        if mo.mo.inclusive() {
                             r.end += 1;
                         }
                         state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
@@ -344,6 +350,14 @@ impl Command {
                     Ok(None)
                 },
                 _ => Err(Error::UnknownCommand(format!("unknown leader command {}", c)))
+            },
+            
+            Command::Viewport(mo) => match mo {
+                ViewportMotion::CursorToMiddle => {
+                    Ok(None)    
+                },
+                
+                _ => Err(Error::UnknownCommand(format!("unimplemented {:?}", self)))
             },
 
             _ => Err(Error::UnknownCommand(format!("unimplemented {:?}", self)))

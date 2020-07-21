@@ -1,5 +1,4 @@
 
-use serde::{Serialize, Deserialize};
 use super::Error;
 use runic::Color;
 

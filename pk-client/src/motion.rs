@@ -158,6 +158,16 @@ pub enum MotionType {
     Inner(TextObject)
 }
 
+impl MotionType {
+    pub fn inclusive(&self) -> bool {
+        match self {
+            MotionType::NextChar { .. } | MotionType::RepeatNextChar { .. } => true,
+            MotionType::An(_) | MotionType::Inner(_) => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Motion {
     pub count: usize,

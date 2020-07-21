@@ -519,7 +519,7 @@ impl Highlighter {
         let hl = syntect_highlighter::Highlighter::new(&self.color_sel);
         let mut hlstate = syntect_highlighter::HighlightState::new(&hl, ScopeStack::new());
         let mut gi = 0;
-        let tx = buf.text.text();
+        //let tx = buf.text.text();
         //println!("highlighting text:\n{}", tx);
         for (ops, ln) in buf.text.text().lines()
             .map(|ln| (parser.parse_line(ln, &self.synset), ln))

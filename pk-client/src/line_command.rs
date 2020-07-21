@@ -1,5 +1,4 @@
 use super::*;
-use crate::buffer::Buffer;
  
 pub trait CommandFn {
     fn process(&self, cs: PClientState, es: PEditorState, a: &regex::Captures) -> mode::ModeEventResult;
@@ -8,7 +7,7 @@ pub trait CommandFn {
 pub struct TestCommand;
 
 impl CommandFn for TestCommand {
-    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, client_state: PClientState, _editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
         println!("args = {:?}", args.get(1));
         ClientState::process_usr_msgp(client_state,
             UserMessage::info("This is a test".into(),
@@ -23,7 +22,7 @@ impl CommandFn for TestCommand {
 pub struct DebugPieceTableCommand;
 
 impl CommandFn for DebugPieceTableCommand {
-    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, _client_state: PClientState, editor_state: PEditorState, _args: &regex::Captures) -> mode::ModeEventResult {
         println!("{:#?}", editor_state.read().unwrap().current_buffer().map(|b| &b.text));
         Ok(Some(Box::new(NormalMode::new())))
     }
@@ -32,7 +31,7 @@ impl CommandFn for DebugPieceTableCommand {
 pub struct DebugRegistersCommand;
 
 impl CommandFn for DebugRegistersCommand {
-    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+    fn process(&self, client_state: PClientState, editor_state: PEditorState, _args: &regex::Captures) -> mode::ModeEventResult {
         ClientState::process_usr_msgp(client_state, UserMessage::info(format!("registers: {:?}", editor_state.read().unwrap().registers), None));
         Ok(Some(Box::new(NormalMode::new())))
     }
@@ -47,7 +46,7 @@ impl CommandFn for EditFileCommand {
         let path = a.name("path").map(|m| PathBuf::from(m.as_str()))
             .ok_or(Error::InvalidCommand("missing path for editing a file".into()))?;
         ClientState::open_buffer(cs, es, server_name, path, |state, cstate, buffer_index| {
-            state.current_pane_mut().content = PaneContent::Buffer { buffer_index, viewport_start: 0 };
+            state.current_pane_mut().content = PaneContent::buffer(buffer_index);
             cstate.write().unwrap().force_redraw = true;
         });
         Ok(Some(Box::new(NormalMode::new())))
@@ -73,7 +72,7 @@ impl CommandFn for BufferCommand {
         match a.name("subcmd").map(|m| m.as_str()) {
             None => {
                 if let Some((buffer_index, _score)) = bufs.get(0) {
-                    es.write().unwrap().current_pane_mut().content = PaneContent::Buffer { buffer_index: *buffer_index, viewport_start: 0 };
+                    es.write().unwrap().current_pane_mut().content = PaneContent::buffer(*buffer_index);
                     Ok(Some(Box::new(NormalMode::new())))
                 } else {
                     Err(Error::InvalidCommand(format!("no matching buffer for {}", name_query)))

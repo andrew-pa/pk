@@ -2,7 +2,6 @@
 use std::fmt;
 use runic::*;
 use super::*;
-use std::sync::{Arc,RwLock};
 
 pub enum CursorStyle {
     Line, Block, Box, Underline

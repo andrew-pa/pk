@@ -49,21 +49,20 @@ impl UserMessage {
     }
 }
 
-use std::cell::RefCell;
-
 #[derive(Clone, Debug)]
 pub enum PaneContent {
     Empty,
     Buffer {
         buffer_index: usize,
-        viewport_start: usize
+        viewport_start: usize,
+        viewport_end: usize
     }
 }
 
 impl PaneContent {
-    fn buffer(buffer_index: usize) -> PaneContent {
+    pub fn buffer(buffer_index: usize) -> PaneContent {
         PaneContent::Buffer {
-            buffer_index, viewport_start: 0
+            buffer_index, viewport_start: 0, viewport_end: 0
         }
     }
 }
@@ -410,17 +409,17 @@ impl ClientState {
         let tp = {state.read().unwrap().thread_pool.clone()};
         let stp = tp.clone();
         let url = url.to_owned();
-        tp.spawn_ok(async move {
-                    let mut state = state.write().unwrap();
             match Server::init(&url, stp) {
                 Ok(s) => {
-                    println!("c {:?}", std::time::Instant::now());
+                    let mut state = state.write().unwrap();
+                    //println!("c {:?}", std::time::Instant::now());
                     state.servers.insert(name.clone(), s);
                     ClientState::process_usr_msg(&mut state, UserMessage::info(
                             format!("Connected to {} ({})!", name, url),
                             None));
                 }
                 Err(e) => {
+                    let mut state = state.write().unwrap();
                     ClientState::process_usr_msg(&mut state,
                         UserMessage::error(
                             format!("Connecting to {} ({}) failed (reason: {}), retry?", name, url, e),
@@ -430,7 +429,6 @@ impl ClientState {
                             ));
                 }
             }
-        });
     }
 
     pub fn make_request_async<F>(state: PClientState, server_name: impl AsRef<str>, request: protocol::Request, f: F)
@@ -438,7 +436,7 @@ impl ClientState {
     {
         let tp = {state.read().unwrap().thread_pool.clone()};
         let req_fut = match {
-            println!("a {:?}", std::time::Instant::now());
+            //println!("a {:?}", std::time::Instant::now());
             state.write().unwrap().servers.get_mut(server_name.as_ref())
                 .ok_or(Error::InvalidCommand(String::from("server name ") + server_name.as_ref() + " is unknown"))
         } {
@@ -464,7 +462,7 @@ impl ClientState {
         f: impl FnOnce(&mut EditorState, PClientState, usize) + Send + Sync + 'static)
     {
         let sstate = state.clone();
-        ClientState::make_request_async(state, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, move |css, resp| {
+        ClientState::make_request_async(state, server_name.clone(), protocol::Request::OpenFile { path: path.clone() }, move |_, resp| {
             match resp {
                 protocol::Response::FileInfo { id, contents, version, format } => {
                     let mut estate = ess.write().unwrap();
@@ -512,7 +510,7 @@ impl ClientState {
                                         "Keep local version".into(),
                                         "Open server version/Discard local".into(),
                                         "Open server version in new buffer".into()
-                                ], Box::new(move |index, state| {
+                                ], Box::new(move |index, _| {
                                     let mut state = ed_state.write().unwrap();
                                     match index {
                                         0 => {
@@ -532,7 +530,7 @@ impl ClientState {
                                             let cp = state.current_pane;
                                             let nbi = state.buffers.len();
                                             Pane::split(&mut state.panes, cp, true, 0.5,
-                                                PaneContent::Buffer { buffer_index: nbi, viewport_start: 0 });
+                                                PaneContent::buffer(nbi));
                                             let p = state.buffers[buffer_index].path.clone();
                                             let f = state.buffers[buffer_index].format.clone();
                                             let server_name = state.buffers[buffer_index].server_name.clone();
