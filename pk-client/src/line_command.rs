@@ -20,6 +20,24 @@ impl CommandFn for TestCommand {
     }
 }
 
+pub struct DebugPieceTableCommand;
+
+impl CommandFn for DebugPieceTableCommand {
+    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+        println!("{:#?}", editor_state.read().unwrap().current_buffer().map(|b| &b.text));
+        Ok(Some(Box::new(NormalMode::new())))
+    }
+}
+
+pub struct DebugRegistersCommand;
+
+impl CommandFn for DebugRegistersCommand {
+    fn process(&self, client_state: PClientState, editor_state: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+        ClientState::process_usr_msgp(client_state, UserMessage::info(format!("registers: {:?}", editor_state.read().unwrap().registers), None));
+        Ok(Some(Box::new(NormalMode::new())))
+    }
+}
+
 pub struct EditFileCommand;
 
 impl CommandFn for EditFileCommand {

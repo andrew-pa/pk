@@ -93,7 +93,8 @@ impl PieceTableRenderer {
             for h in hl.iter() {
                 if h.range.start > global_index + ln.len() { break; }
                 if h.range.start < global_index && h.range.end < global_index { continue; }
-                let range = h.range.start.saturating_sub(global_index) .. h.range.end.saturating_sub(global_index);
+                // that subtraction of h.range.end and global_index looks real sketchy
+                let range = h.range.start.saturating_sub(global_index) .. h.range.end.saturating_sub(global_index).min(ln.len());
                 //if range.len() == 0 { continue; }
                 h.sort.apply_to_layout(range, rx, &layout, colors);
             }
@@ -126,7 +127,8 @@ impl PieceTableRenderer {
         let viewport_end = self.viewport_end(viewport_start, &bounds);
         let table_len = table.len();
         //self.paint_start_of_line(rx, &mut cur_pos, line_num);
-        for p in table.pieces.iter() {
+        'top: for p in table.pieces.iter() {
+            if p.length == 0 { continue; }
             let src = &table.sources[p.source][p.start..(p.start+p.length)];
             let mut lni = src.split('\n').peekable(); 
             loop {
@@ -134,8 +136,11 @@ impl PieceTableRenderer {
                 if ln.is_none() { break; }
                 let ln = ln.unwrap();
                 if line_num < viewport_start {
-                    if lni.peek().is_some() { line_num+=1; }
-                    global_index += ln.len()+1;
+                    if lni.peek().is_some() {
+                        line_num+=1; 
+                        global_index += 1;
+                    }
+                    global_index += ln.len();
                     continue;
                 }
                 let mut hh = DefaultHasher::new();
@@ -176,7 +181,7 @@ impl PieceTableRenderer {
                     if line_numbers { self.paint_line_numbers(rx, config, &mut cur_pos, line_num); }
                     cur_pos.y += text_size.h.min(self.em_bounds.h);
                     global_index += 1;
-                    if line_num > viewport_end { break; }
+                    if line_num > viewport_end { break 'top; }
                     //if cur_pos.y + text_size.h > bounds.h { break; }
                 } else {
                     break;

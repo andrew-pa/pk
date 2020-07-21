@@ -190,8 +190,15 @@ impl Command {
                 if let Some(buf) = state.current_buffer_index() {
                     let buf = &mut state.buffers[buf];
                     let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
-                    buf.text.insert_range(src, buf.cursor_index);
-                    buf.cursor_index += src.len();
+                    // we need to check here to see if src contains a full line so that we can put it _after_ the current line
+                    let insertion_point = if let Some('\n') = src.chars().last() {
+                        println!("X");
+                        buf.next_line_index(buf.cursor_index)
+                    } else {
+                        buf.cursor_index
+                    };
+                    buf.text.insert_range(src, insertion_point);
+                    buf.cursor_index = insertion_point + src.len().saturating_sub(1);
                     if *clear_register {
                         state.registers.remove(source_register);
                     }
@@ -291,7 +298,7 @@ impl Command {
                     Operator::Indent(direction) => {
                         let r = mo.range(buf, buf.cursor_index, *op_count);
                         let mut ln = buf.current_start_of_line(r.start);
-                        while ln < r.end.saturating_sub(2) {
+                        while ln < r.end {
                             println!("ln = {}, r = {:?}", ln, r);
                             if *direction == Direction::Forward {
                                 buf.indent(ln, 1, &client.read().unwrap().config);

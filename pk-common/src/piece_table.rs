@@ -95,16 +95,18 @@ impl TableMutator {
         false
     }
 
-    pub fn finish(&self, pt: &mut PieceTable) {
+    pub fn finish(mut self, pt: &mut PieceTable) {
         // slightly jank fix to make sure that the history item gets updated with the new piece length
         let ix = if self.action.changes.len() == 1 { 0 } else { 1 };
-        let mut action = self.action.clone();
-        if let Change::Insert { new, .. } = &mut action.changes[ix] {
+        if self.action.changes.len() == 0 {
+            println!("broken piece table mutator! {}#{:?} {:?} {:#?}", self.piece_ix, pt.pieces[self.piece_ix], self.action, pt);
+        }
+        if let Change::Insert { new, .. } = &mut self.action.changes[ix] {
             *new = pt.pieces[self.piece_ix];
         } else {
             panic!();
         }
-        pt.history.push(action);
+        pt.history.push(self.action);
     }
 }
 
@@ -119,7 +121,12 @@ impl<'t> Iterator for TableChars<'t> {
     type Item = char;
 
     fn next(&mut self) -> Option<char> {
+        //dbg!(self.current_piece, self.current_index);
         if self.current_piece >= self.table.pieces.len() { return None; }
+        while self.table.pieces[self.current_piece].length == 0 {
+            self.current_piece += 1;
+            if self.current_piece >= self.table.pieces.len() { return None; }
+        }
         let curp = &self.table.pieces[self.current_piece];
         let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
         self.current_index += 1;
@@ -141,6 +148,13 @@ impl<'t> DoubleEndedIterator for TableChars<'t> {
                 self.hit_beginning = true;
             } else {
                 self.current_piece -= 1;
+                while self.table.pieces[self.current_piece].length == 0 {
+                    if self.current_piece == 0 {
+                        self.hit_beginning = true;
+                        return ch;
+                    }
+                    self.current_piece -= 1;
+                }
                 self.current_index = self.table.pieces[self.current_piece].length.saturating_sub(1);
             }
         } else {
@@ -206,6 +220,7 @@ impl<'table> PieceTable {
 
     pub fn undo(&mut self) {
         if let Some(action) = self.history.pop() {
+            println!("undoing {:?}", action);
             for change in action.iter().rev() {
                 self.reverse_change(&change);
             }
@@ -500,7 +515,7 @@ impl<'table> PieceTable {
     pub fn chars(&self, index: usize) -> TableChars {
         let mut global_index = 0;
         for (pi, p) in self.pieces.iter().enumerate() {
-            if index >= global_index && index <= global_index+p.length { 
+            if index >= global_index && index < global_index+p.length { 
                 return TableChars {
                     table: self,
                     current_piece: pi,
@@ -536,10 +551,11 @@ mod tests {
     // #[ignore]
     fn fuzz_api() -> Result<(), Box<dyn std::error::Error>> {
         let mut pt = PieceTable::with_text("asdf\nasdf\nasdf\nasdf\n");
+        let mut history = vec![pt.text()];
         
-        for i in 0..1_000_000 {
+        for i in 0..1_000 {
             if pt.text().len() == 0 { println!("deleted entire text"); break; }
-            match (rand::random::<usize>()+1) % 6 {
+            match (rand::random::<usize>()+1) % 8 {
                 0 => {
                     let mut tx = pt.text();
                     let x = rand::random::<usize>() % tx.len();
@@ -597,7 +613,7 @@ mod tests {
                     let tx = pt.text();
                     let x = rand::random::<usize>() % tx.len();
                     println!("chars({})", x);
-                    let mut tc = tx.chars().skip(x-1);
+                    let mut tc = tx.chars().skip(x);
                     let mut ch = pt.chars(x);
                     loop {
                         let a = tc.next();
@@ -606,10 +622,17 @@ mod tests {
                         assert_eq!(a, b);
                         if a.is_none() && b.is_none() { break; }
                     }
-                }
+                },
+                7 => {
+                    println!("undo()");
+                    println!("history = {:?}", history);
+                    pt.undo();
+                    history.pop();
+                    assert_eq!(pt.text(), history.last().cloned().unwrap_or("".into()));
+                },
                 x@_ => { println!("{}", x); }
             }
-            println!("piece table text = \"{}\"", pt.text().escape_debug());
+            history.push(pt.text());
             println!("sources [");
             for (i, s) in pt.sources.iter().enumerate() {
                 println!("\t{} = \"{}\"", i, s.escape_debug());
