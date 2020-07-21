@@ -167,7 +167,7 @@ impl <Out: Send + 'static, F: Future<Output=Out>> Process for FuturePollOnRecv<O
         //         Ok(ProcessState::Finished)
         //     }
         // }
-        Ok(ProcessState::Finished)
+        unimplemented!();
     }
 }
 

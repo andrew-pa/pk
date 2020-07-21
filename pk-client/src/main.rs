@@ -16,9 +16,7 @@ mod syntax_highlight;
 use runic::*;
 use pk_common::*;
 use pk_common::piece_table::PieceTable;
-use piece_table_render::PieceTableRenderer;
-use mode::*;
-use std::rc::Rc;
+use piece_table_render::PieceTableRenderer;use mode::*;use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use editor_state::*;
 use config::Config;
@@ -147,7 +145,7 @@ impl runic::App for PkApp {
         if let Event::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, .. }, .. } = e {
             *should_redraw = true;
         }
-        if { self.client.read().unwrap().force_redraw } {
+        if self.client.read().unwrap().force_redraw {
             *should_redraw = true;
             self.client.write().unwrap().force_redraw = false;
         }

@@ -17,7 +17,7 @@ pub enum Operator {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ViewportMotion {
     CursorToMiddle,
-    PageUp, PageDown
+    Line(Direction, usize)
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -124,9 +124,9 @@ impl Command {
             } },
             Some('z') => { schars.next(); return match schars.next() {
                 Some('z') => Ok(Command::Viewport(ViewportMotion::CursorToMiddle)),
-                Some('j') => Ok(Command::Viewport(ViewportMotion::PageDown)),
-                Some('k') => Ok(Command::Viewport(ViewportMotion::PageUp)),
-                Some(c) => Err(Error::UnknownCommand(String::from(s))),
+                Some('j') => Ok(Command::Viewport(ViewportMotion::Line(Direction::Forward, opcount.unwrap_or(1)))),
+                Some('k') => Ok(Command::Viewport(ViewportMotion::Line(Direction::Backward, opcount.unwrap_or(1)))),
+                Some(_) => Err(Error::UnknownCommand(String::from(s))),
                 None => Err(Error::IncompleteCommand)
             } },
             Some(_) => None,
@@ -354,10 +354,27 @@ impl Command {
             
             Command::Viewport(mo) => match mo {
                 ViewportMotion::CursorToMiddle => {
+                    let curln = if let Some(buf) = state.current_buffer() {
+                        buf.line_for_index(buf.cursor_index)
+                    } else {
+                        return Err(Error::InvalidCommand("can't move viewport on non-buffer pane".into()));
+                    };
+                    if let PaneContent::Buffer { viewport_start, viewport_end, .. } = &mut state.current_pane_mut().content {
+                        *viewport_start = curln.saturating_sub((*viewport_end - *viewport_start)/2);
+                    }
                     Ok(None)    
                 },
                 
-                _ => Err(Error::UnknownCommand(format!("unimplemented {:?}", self)))
+                ViewportMotion::Line(dir, count) => {
+                    if let PaneContent::Buffer { viewport_start, .. } = &mut state.current_pane_mut().content {
+                        if *dir == Direction::Forward {
+                            *viewport_start = viewport_start.saturating_sub(*count);
+                        } else {
+                            *viewport_start = *viewport_start + *count;
+                        }
+                    }
+                    Ok(None)
+                }
             },
 
             _ => Err(Error::UnknownCommand(format!("unimplemented {:?}", self)))

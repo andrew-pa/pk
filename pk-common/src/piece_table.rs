@@ -101,7 +101,7 @@ impl TableMutator {
         if self.action.changes.len() == 0 {
             println!("broken piece table mutator! {}#{:?} {:?} {:#?}", self.piece_ix, pt.pieces[self.piece_ix], self.action, pt);
         }
-        if let Change::Insert { new, .. } = &mut self.action.changes[ix] {
+        if let Change::Insert { new, .. } | Change::Modify { new, .. } = &mut self.action.changes[ix] {
             *new = pt.pieces[self.piece_ix];
         } else {
             panic!();
@@ -286,9 +286,9 @@ impl<'table> PieceTable {
                     action.push(Change::Insert { piece_index: i, new });
                     insertion_piece_index = Some(i);
                 } else if index == ix+p.length-1 { // we're inserting at the end of this piece
-                    if self.sources[p.source].len() ==
-                        p.start+p.length { // we're inserting at the current end of the piece in the source
+                    if self.sources[p.source].len() == p.start+p.length { // we're inserting at the current end of the piece in the source
                         insertion_piece_index = Some(i);
+                        action.push(Change::Modify { piece_index: i, old: p.clone(), new: p.clone() }); 
                     } else {
                         let new = Piece { source: self.sources.len(), start: 0, length: 0 }; 
                         self.pieces.insert(i+1, new);

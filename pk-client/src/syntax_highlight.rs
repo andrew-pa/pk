@@ -1,4 +1,4 @@
-use regex::{Regex, Match};
+use regex::Regex;
 use crate::piece_table_render::Highlight;
 use crate::config::ColorschemeSel;
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ impl SyntaxRules {
 }
 
 use syntect::parsing::*;
-use syntect::highlighting::{ScopeSelector,ScopeSelectors};
+use syntect::highlighting::ScopeSelectors;
 use crate::buffer;
 
 mod syntect_highlighter {

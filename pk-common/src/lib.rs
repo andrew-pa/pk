@@ -5,7 +5,6 @@
 pub enum Direction { Forward, Backward }
 
 pub mod piece_table;
-use crate::piece_table::PieceTable;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ModeTag {

@@ -73,7 +73,7 @@ pub struct PieceTableRenderer {
 }
 
 impl PieceTableRenderer {
-    pub fn init(rx: &mut RenderContext, fnt: Font, em_bounds: Rect) -> Self {
+    pub fn init(_rx: &mut RenderContext, fnt: Font, em_bounds: Rect) -> Self {
         PieceTableRenderer {
             fnt,
             em_bounds,
@@ -150,6 +150,7 @@ impl PieceTableRenderer {
                 let ln = lni.next();
                 if ln.is_none() { break; }
                 let ln = ln.unwrap();
+                
                 if line_num < viewport_start {
                     if lni.peek().is_some() {
                         line_num+=1; 
@@ -158,11 +159,10 @@ impl PieceTableRenderer {
                     global_index += ln.len();
                     continue;
                 }
-                let mut hh = DefaultHasher::new();
-                ln.hash(&mut hh);
-                let ln_hash = hh.finish();
+                
                 let layout = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
                 rx.draw_text_layout(cur_pos, &layout);
+                
                 if cursor_index >= global_index && cursor_index < global_index+ln.len() ||
                     ((lni.peek().is_some() || cursor_index == table_len) && cursor_index == global_index+ln.len()) {
                     let curbounds = layout.char_bounds(cursor_index - global_index).offset(cur_pos);
@@ -173,6 +173,7 @@ impl PieceTableRenderer {
                         rx.set_color(config.colors.foreground);
                     }
                 }
+                
                 let text_size = layout.bounds();
                 cur_pos.x += text_size.w; 
                 global_index += ln.len();
