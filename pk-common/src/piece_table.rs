@@ -115,32 +115,79 @@ pub struct TableChars<'table> {
     current_piece: usize,
     current_index: usize,
     hit_beginning: bool,
+    cur_char_iter: Option<std::str::Chars<'table>>,
+}
+
+impl<'tab> TableChars<'tab> {
+    fn new(table: &'tab PieceTable, piece: usize, index: usize) -> TableChars<'tab> {
+        TableChars {
+            table,
+            current_piece: piece,
+            current_index: index,
+            hit_beginning: false,
+            cur_char_iter: None
+        }
+    }
 }
 
 impl<'t> Iterator for TableChars<'t> {
     type Item = char;
 
     fn next(&mut self) -> Option<char> {
-        //dbg!(self.current_piece, self.current_index);
+        // dbg!(self.current_piece, self.current_index);
         if self.current_piece >= self.table.pieces.len() { return None; }
         while self.table.pieces[self.current_piece].length == 0 {
             self.current_piece += 1;
             if self.current_piece >= self.table.pieces.len() { return None; }
         }
-        let curp = &self.table.pieces[self.current_piece];
-        let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
-        self.current_index += 1;
-        if self.current_index >= curp.length {
-            self.current_piece += 1;
+        if self.cur_char_iter.is_none() {
+            let curp = &self.table.pieces[self.current_piece];
+            self.cur_char_iter = Some(self.table.sources[curp.source][curp.start+self.current_index..curp.start+curp.length].chars());
             self.current_index = 0;
         }
-        ch
+        match self.cur_char_iter.as_mut().unwrap().next() {
+            Some(c) => Some(c),
+            None => {
+                self.current_piece += 1;
+                self.cur_char_iter = None;
+                self.next()
+            }
+        }
+        //let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
+        /*self.current_index += 1;
+          if self.current_index >= curp.length {
+          self.current_piece += 1;
+          self.current_index = 0;
+          self.cur_char_iter = None;
+          }*/
     }
 }
 
 impl<'t> DoubleEndedIterator for TableChars<'t> {
     fn next_back(&mut self) -> Option<char> {
+        //dbg!(self.current_piece, self.current_index);
         if self.hit_beginning { return None; }
+        if self.cur_char_iter.is_none() {
+            let curp = &self.table.pieces[self.current_piece];
+            let end = if self.current_index == 0 { curp.length } else { self.current_index+1 };
+            //println!("new iterator over \"{}\"", &self.table.sources[curp.source][curp.start..curp.start+end]);
+            self.cur_char_iter = Some(self.table.sources[curp.source][curp.start..curp.start+end].chars());
+            self.current_index = 0;
+        }
+        match self.cur_char_iter.as_mut().unwrap().next_back() {
+            Some(c) => Some(c),
+            None => {
+                if self.current_piece == 0 {
+                    self.hit_beginning = true;
+                    return None;
+                }
+                self.current_piece -= 1;
+                self.cur_char_iter = None;
+                //println!("back around");
+                self.next_back()
+            }
+        }
+        /*if self.hit_beginning { return None; }
         let curp = &self.table.pieces[self.current_piece];
         let ch = self.table.sources[curp.source].chars().nth(curp.start + self.current_index);
         if self.current_index == 0 {
@@ -160,7 +207,7 @@ impl<'t> DoubleEndedIterator for TableChars<'t> {
         } else {
             self.current_index -= 1;
         }
-        ch
+        ch*/
     }
 }
 
@@ -285,7 +332,7 @@ impl<'table> PieceTable {
                     self.sources.push(String::new());
                     action.push(Change::Insert { piece_index: i, new });
                     insertion_piece_index = Some(i);
-                } else if index == ix+p.length-1 { // we're inserting at the end of this piece
+                } else if index == ix+p.length { // we're inserting at the end of this piece
                     if self.sources[p.source].len() == p.start+p.length { // we're inserting at the current end of the piece in the source
                         insertion_piece_index = Some(i);
                         action.push(Change::Modify { piece_index: i, old: p.clone(), new: p.clone() }); 
@@ -520,7 +567,8 @@ impl<'table> PieceTable {
                     table: self,
                     current_piece: pi,
                     current_index: index - global_index,
-                    hit_beginning: false
+                    hit_beginning: false,
+                    cur_char_iter: None
                 };
             }
             global_index += p.length;
@@ -612,7 +660,7 @@ mod tests {
                 6 => {
                     let tx = pt.text();
                     let x = rand::random::<usize>() % tx.len();
-                    println!("chars({})", x);
+                    println!("chars({}) - {}", x, tx.escape_debug());
                     let mut tc = tx.chars().skip(x);
                     let mut ch = pt.chars(x);
                     loop {

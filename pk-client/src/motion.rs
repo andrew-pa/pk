@@ -445,6 +445,7 @@ impl Motion {
                 },
                 
                 MotionType::NextSearchMatch(direction) => {
+                    range.end = buf.next_query_index(range.start + 1, *direction, true).unwrap_or(range.start);
                 },
 
                 _ => unimplemented!()

@@ -143,8 +143,11 @@ impl CommandFn for SearchCommand {
         let mut es = es.write().unwrap();
         let cb = es.current_buffer_mut().unwrap();
         cb.set_query(args.get(2).unwrap().as_str().into());
-        cb.cursor_index = cb.next_query_index(cb.cursor_index, Direction::Forward, true).unwrap();
-        println!("search {:?}", args);        
+        cb.cursor_index = cb.next_query_index(cb.cursor_index, match args.get(1).unwrap().as_str() {
+            "/" => Direction::Forward,
+            "?" => Direction::Backward,
+            _ => panic!()
+        }, true).unwrap();
         Ok(Some(Box::new(NormalMode::new())))
     }
 }

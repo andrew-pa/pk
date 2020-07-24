@@ -177,39 +177,60 @@ impl Buffer {
     }
     
     pub fn next_query_index(&self, from: usize, direction: crate::Direction, mut wrap: bool) -> Option<usize> {
+        use crate::Direction::*;
         if self.current_query.is_none() { return None; }
         let mut chrs = self.text.chars(from);
-        let qury: Vec<char> = self.current_query.as_ref().unwrap().chars().collect();
+        let mut qury: Vec<char> = self.current_query.as_ref().unwrap().chars().collect();
+        if direction == Backward {
+            qury.reverse();
+        }
         let mut qury_ix = 0;
         let mut chrs_ix = from;
         let mut qury_match = None;
+        //dbg!(&qury, from, direction);
         loop {
             //dbg!(&qury, qury_ix, chrs_ix, qury_match);
-            match chrs.next() {
+            match match direction {
+                Forward => chrs.next(),
+                Backward => chrs.next_back()
+            } {
                 Some(c) if qury[qury_ix] == c => {
+                    //println!("found {} at {}/{}", c, qury_ix, chrs_ix);
                     if qury_ix == 0 {
                         qury_match = Some(chrs_ix);
                     }
                     qury_ix += 1;
                     if qury_ix == qury.len() {
-                        return qury_match;
+                        return match direction {
+                            Forward => qury_match,
+                            Backward => Some(chrs_ix)
+                        };
                     }
                 },
                 Some(_) => {
+                    //println!("reset at {}", chrs_ix);
                     qury_ix = 0;
                     qury_match = None;
                 },
                 None => {
                     if wrap {
                         wrap = false;
-                        chrs_ix = 0;
+                        chrs_ix = match direction {
+                            Forward => 0,
+                            Backward => from
+                        };
                         chrs = self.text.chars(from);
                     } else {
                         break;
                     }
                 }
             }
-            chrs_ix += 1;
+            chrs_ix = match direction {
+                Forward => chrs_ix + 1,
+                Backward => if chrs_ix == 0 {
+                    if wrap { from } else { return None; }
+                } else { chrs_ix - 1 },
+            };
         }
         None
     }
