@@ -8,7 +8,7 @@ pub mod piece_table;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ModeTag {
-    Normal, Insert, Command, Visual, UserMessage
+    Normal, Insert, Command, Visual, UserMessage, Search(Direction)
 }
 
 pub mod protocol {

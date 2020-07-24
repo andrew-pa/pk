@@ -12,7 +12,8 @@ pub struct Buffer {
     pub currently_in_conflict: bool,
     pub cursor_index: usize,
     pub highlights: Option<Vec<crate::piece_table_render::Highlight>>,
-    pub last_highlighted_action_id: usize
+    pub last_highlighted_action_id: usize,
+    pub current_query: Option<String>
 }
 
 impl Buffer {
@@ -23,7 +24,8 @@ impl Buffer {
             server_name: "".into(),
             path: "".into(), currently_in_conflict: false, format: protocol::TextFormat::default(),
             highlights: None,
-            last_highlighted_action_id: 0
+            last_highlighted_action_id: 0,
+            current_query: None
         }
     }
 
@@ -34,7 +36,8 @@ impl Buffer {
             server_name, path,
             currently_in_conflict: false, format,
             highlights: None,
-            last_highlighted_action_id: 0
+            last_highlighted_action_id: 0,
+            current_query: None
         }
     }
 
@@ -168,7 +171,97 @@ impl Buffer {
             .and_then(|eoll| self.text.last_index_of('\n', eoll)).map(|i| i+1)
             .unwrap_or(0)
     }
+    
+    pub fn set_query(&mut self, s: String) {
+        self.current_query = Some(s);
+    }
+    
+    pub fn next_query_index(&self, from: usize, direction: crate::Direction, mut wrap: bool) -> Option<usize> {
+        if self.current_query.is_none() { return None; }
+        let mut chrs = self.text.chars(from);
+        let qury: Vec<char> = self.current_query.as_ref().unwrap().chars().collect();
+        let mut qury_ix = 0;
+        let mut chrs_ix = from;
+        let mut qury_match = None;
+        loop {
+            //dbg!(&qury, qury_ix, chrs_ix, qury_match);
+            match chrs.next() {
+                Some(c) if qury[qury_ix] == c => {
+                    if qury_ix == 0 {
+                        qury_match = Some(chrs_ix);
+                    }
+                    qury_ix += 1;
+                    if qury_ix == qury.len() {
+                        return qury_match;
+                    }
+                },
+                Some(_) => {
+                    qury_ix = 0;
+                    qury_match = None;
+                },
+                None => {
+                    if wrap {
+                        wrap = false;
+                        chrs_ix = 0;
+                        chrs = self.text.chars(from);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            chrs_ix += 1;
+        }
+        None
+    }
 }
 
-
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn search_forwards() {
+        let src = "abc def abc abl abc pqr abc vwx yz\n";
+        let qry = "abc";
+        let mut buf = Buffer::with_text(src);
+        buf.set_query(qry.into());
+        let mut ix = 0;
+        loop {
+            println!("cr = {}", &src[ix..].escape_debug());
+            match (buf.next_query_index(ix, crate::Direction::Forward, false), &src[ix..].find(qry).map(|i| i + ix)) {
+                (Some(test), Some(correct)) => {
+                    println!("found instance at {}, {}", test, correct);
+                    assert_eq!(test, *correct);
+                    ix = test + qry.len();
+                    if ix > src.len() { break; }
+                },
+                (Some(x), None) => { panic!("buffer found an instance at {} that was invalid", x); },
+                (None, Some(x)) => { panic!("buffer missed an instance at {}", x); },
+                (None, None) => break
+            }
+        }
+    }
+    
+    #[test]
+    fn search_backwards() {
+        let src = "abc def abc abl abc pqr abc vwx yz\n";
+        let qry = "abc";
+        let mut buf = Buffer::with_text(src);
+        buf.set_query(qry.into());
+        let mut ix = src.len()-1;
+        loop {
+            println!("cr = {}", &src[..ix].escape_debug());
+            match (buf.next_query_index(ix, crate::Direction::Backward, false), &src[..ix].rfind(qry)) {
+                (Some(test), Some(correct)) => {
+                    println!("found instance at {}, {}", test, correct);
+                    assert_eq!(test, *correct);
+                    ix = test.saturating_sub(1);
+                    if ix == 0 { break; }
+                },
+                (Some(x), None) => { panic!("buffer found an instance at {} that was invalid", x); },
+                (None, Some(x)) => { panic!("buffer missed an instance at {}", x); },
+                (None, None) => break
+            }
+        }
+    }
+}
 

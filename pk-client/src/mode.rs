@@ -43,6 +43,7 @@ impl Mode for NormalMode {
                 self.ctrl_pressed = ms.ctrl();
                 Ok(None)
             }
+            
             Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
                 match vk {
                     VirtualKeyCode::Escape => {
@@ -93,6 +94,7 @@ impl Mode for NormalMode {
                         match res {
                             None | Some(ModeTag::Normal) => Ok(None),
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new()))),
+                            Some(ModeTag::Search(dir)) => Ok(Some(Box::new(CommandMode::search(dir)))),
                             Some(ModeTag::Visual) => Ok(Some(Box::new(VisualMode::new()))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
@@ -320,15 +322,15 @@ pub struct CommandMode {
 }
 
 impl CommandMode {
-    pub fn new() -> CommandMode {
+    fn with_table(mut pt: PieceTable) -> CommandMode {
         use regex::Regex;
         use line_command::*;
-        let mut pt = PieceTable::default();
-        let cursor_mutator = pt.insert_mutator(0);
+        let len = pt.len();
+        let cursor_mutator = pt.insert_mutator(len);
         CommandMode {
             cursor_mutator,
             command_line: pt,
-            cursor_index: 0,
+            cursor_index: len,
             commands: vec![
                 (Regex::new("^test (.*)").unwrap(), Rc::new(TestCommand)),
                 (Regex::new("^dbg pt").unwrap(), Rc::new(DebugPieceTableCommand)),
@@ -337,8 +339,20 @@ impl CommandMode {
                 (Regex::new(r#"^b(?P<subcmd>\w+)?\s+(?P<name_query>.*)"#).unwrap(), Rc::new(BufferCommand)),
                 (Regex::new("^sync").unwrap(), Rc::new(SyncFileCommand)),
                 (Regex::new(r#"^con\s+(?P<server_name>\w+)\s(?P<server_url>.*)"#).unwrap(), Rc::new(ConnectToServerCommand)),
+                (Regex::new(r#"(\?|/)(.*)"#).unwrap(), Rc::new(SearchCommand))
             ],
         }
+    }
+    
+    pub fn new() -> CommandMode {
+        CommandMode::with_table(PieceTable::default())
+    }
+    
+    pub fn search(dir: Direction) -> CommandMode {
+        CommandMode::with_table(PieceTable::with_text(match dir {
+            Direction::Forward => "/",
+            Direction::Backward => "?"
+        }))
     }
 }
 

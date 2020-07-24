@@ -136,3 +136,16 @@ impl CommandFn for ConnectToServerCommand {
     }
 }
 
+pub struct SearchCommand;
+
+impl CommandFn for SearchCommand {
+    fn process(&self, cs: PClientState, es: PEditorState, args: &regex::Captures) -> mode::ModeEventResult {
+        let mut es = es.write().unwrap();
+        let cb = es.current_buffer_mut().unwrap();
+        cb.set_query(args.get(2).unwrap().as_str().into());
+        cb.cursor_index = cb.next_query_index(cb.cursor_index, Direction::Forward, true).unwrap();
+        println!("search {:?}", args);        
+        Ok(Some(Box::new(NormalMode::new())))
+    }
+}
+

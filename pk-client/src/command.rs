@@ -77,6 +77,8 @@ impl Command {
 
             Some('v') => return Ok(Command::ChangeMode(ModeTag::Visual)),
             Some(':') => return Ok(Command::ChangeMode(ModeTag::Command)),
+            Some('/') => return Ok(Command::ChangeMode(ModeTag::Search(Direction::Forward))),
+            Some('?') => return Ok(Command::ChangeMode(ModeTag::Search(Direction::Backward))),
             Some('r') => {
                 schars.next();
                 return Ok(Command::Edit {
@@ -366,13 +368,17 @@ impl Command {
                 },
                 
                 ViewportMotion::Line(dir, count) => {
-                    if let PaneContent::Buffer { viewport_start, .. } = &mut state.current_pane_mut().content {
+                    let nvs = if let PaneContent::Buffer { buffer_index, viewport_start, .. } = &mut state.current_pane_mut().content {
                         if *dir == Direction::Forward {
                             *viewport_start = viewport_start.saturating_sub(*count);
+                            *viewport_start
                         } else {
                             *viewport_start = *viewport_start + *count;
+                            *viewport_start
                         }
-                    }
+                    } else {
+                        return Err(Error::InvalidCommand("can't move viewport on non-buffer pane".into()));
+                    };
                     Ok(None)
                 }
             },

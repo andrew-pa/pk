@@ -155,7 +155,8 @@ pub enum MotionType {
     EndOfLine,
     Paragraph,
     An(TextObject),
-    Inner(TextObject)
+    Inner(TextObject),
+    NextSearchMatch(Direction)
 }
 
 impl MotionType {
@@ -200,6 +201,8 @@ impl Motion {
             Some('B') => MotionType::BigWord(Direction::Backward),
             Some('e') => MotionType::EndOfWord(Direction::Forward),
             Some('E') => MotionType::EndOfBigWord(Direction::Forward),
+            Some('n') => MotionType::NextSearchMatch(Direction::Forward),
+            Some('N') => MotionType::NextSearchMatch(Direction::Backward),
             Some('g') => {
                 c.next();
                 match c.peek() {
@@ -439,6 +442,9 @@ impl Motion {
                 MotionType::WholeLine => {
                     range.start = buf.current_start_of_line(range.start);
                     range.end = buf.next_line_index(range.end);
+                },
+                
+                MotionType::NextSearchMatch(direction) => {
                 },
 
                 _ => unimplemented!()
