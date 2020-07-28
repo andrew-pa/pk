@@ -156,7 +156,8 @@ pub enum MotionType {
     Paragraph,
     An(TextObject),
     Inner(TextObject),
-    NextSearchMatch(Direction)
+    NextSearchMatch(Direction),
+    Passthrough(usize, usize)
 }
 
 impl MotionType {
@@ -164,6 +165,8 @@ impl MotionType {
         match self {
             MotionType::NextChar { .. } | MotionType::RepeatNextChar { .. } => true,
             MotionType::An(_) | MotionType::Inner(_) => true,
+            MotionType::Passthrough(_,_) => true,
+            MotionType::EndOfLine => true,
             _ => false
         }
     }
@@ -188,6 +191,9 @@ pub fn take_number(schars: &mut std::iter::Peekable<std::str::Chars>) -> Option<
 }
 
 impl Motion {
+    pub fn passthrough(r: &Range<usize>) -> Motion {
+        Motion { count: 1, mo: MotionType::Passthrough(r.start, r.end) }
+    }
     pub fn parse(c: &mut std::iter::Peekable<std::str::Chars>, opchar: Option<char>, wholecmd: &str) -> Result<Motion, Error> {
         let count = take_number(c);
         let txo = match c.peek() {
@@ -271,6 +277,7 @@ impl Motion {
 
     pub fn range(&self, buf: &Buffer, cursor_index: usize, multiplier: usize) -> Range<usize> {
         match &self.mo {
+            MotionType::Passthrough(s, e) => return *s .. *e,
             MotionType::An(obj) => {
                 return obj.range(buf, cursor_index, self.count * multiplier, true);
             },

@@ -258,7 +258,7 @@ impl runic::App for PkApp {
                         // println!("highlight took {}ms", (std::time::Instant::now()-hstart).as_nanos() as f32 / 1000000.0);
                     }
                     self.txr.paint(rx, &buf.text, vp, buf.cursor_index,
-                        &config, editor_bounds, buf.highlights.as_ref(), true);
+                        &config, editor_bounds, buf.highlights.as_ref(), true, self.mode.selection());
 
                      /*let mut y = 30.0;
                      let mut global_index = 0;
@@ -290,7 +290,7 @@ impl runic::App for PkApp {
             rx.set_color(config.colors.three_quarter_gray);
             self.cmd_txr.paint(rx, pending_cmd, 0, cmd_cur_index, &config,
                                Rect::xywh(8.0, self.txr.em_bounds.h+2.0, rx.bounds().w-8.0, rx.bounds().h-20.0),
-                               None, false);
+                               None, false, None);
         }
 
         let end = std::time::Instant::now();

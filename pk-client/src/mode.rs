@@ -2,6 +2,7 @@
 use std::fmt;
 use runic::*;
 use super::*;
+use std::ops::Range;
 
 pub enum CursorStyle {
     Line, Block, Box, Underline
@@ -14,6 +15,7 @@ pub trait Mode : fmt::Display {
     fn mode_tag(&self) -> ModeTag;
     fn cursor_style(&self) -> CursorStyle { CursorStyle::Block }
     fn cmd_line(&self) -> Option<(usize, &PieceTable)> { None }
+    fn selection(&self) -> Option<&Range<usize>> { None }
 }
 
 pub struct NormalMode {
@@ -95,7 +97,7 @@ impl Mode for NormalMode {
                             None | Some(ModeTag::Normal) => Ok(None),
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new()))),
                             Some(ModeTag::Search(dir)) => Ok(Some(Box::new(CommandMode::search(dir)))),
-                            Some(ModeTag::Visual) => Ok(Some(Box::new(VisualMode::new()))),
+                            Some(ModeTag::Visual) => Ok(Some(Box::new(VisualMode::new(state.read().unwrap().current_buffer().unwrap().cursor_index)))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
                                 if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
@@ -211,13 +213,17 @@ impl Mode for InsertMode {
 }
 
 pub struct VisualMode {
-    pending_buf: String
+    pending_buf: String,
+    selection: Range<usize>,
+    side: bool
 }
 
 impl VisualMode {
-    fn new() -> VisualMode {
+    fn new(start_index: usize) -> VisualMode {
         VisualMode {
-            pending_buf: String::new()
+            pending_buf: String::new(),
+            selection: start_index .. start_index,
+            side: true
         }
    }
 }
@@ -235,33 +241,18 @@ impl Mode for VisualMode {
         ModeTag::Visual
     }
     
+    fn selection(&self) -> Option<&Range<usize>> {
+        Some(&self.selection)
+    }
+    
     fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
         match e {
             Event::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, .. } => {
                 match vk {
                     VirtualKeyCode::Escape => {
                         self.pending_buf.clear();
-                        Ok(None)
+                        Ok(Some(Box::new(NormalMode::new())))
                     },
-                    VirtualKeyCode::Left => {
-                        let mut state = state.write().unwrap();
-                        match &mut state.current_pane_mut().content {
-                            PaneContent::Buffer { buffer_index, .. } => 
-                                *buffer_index = buffer_index.saturating_sub(1),
-                            _ => {}
-                        }
-                        Ok(None)
-                    },
-                    VirtualKeyCode::Right => {
-                        let mut state = state.write().unwrap();
-                        let numbufs = state.buffers.len();
-                        match &mut state.current_pane_mut().content {
-                            PaneContent::Buffer { buffer_index, .. } => 
-                                *buffer_index = (*buffer_index + 1).min(numbufs.saturating_sub(1)),
-                            _ => {}
-                        }
-                        Ok(None)
-                    }
                     _ => Ok(None) 
                 }
             },
@@ -269,7 +260,32 @@ impl Mode for VisualMode {
             Event::ReceivedCharacter(c) if !c.is_control() => {
                 use super::command::*;
                 self.pending_buf.push(c);
-                match Command::parse(&self.pending_buf) {
+                match Command::parse_2(&self.pending_buf, Some(crate::motion::Motion::passthrough(&self.selection))) {
+                    Ok(Command::VisualSwitchSides) => {
+                        self.side = !self.side;
+                        self.pending_buf.clear();
+                        if let Some(buf) = state.write().unwrap().current_buffer_mut() {
+                            buf.cursor_index = if self.side {
+                                self.selection.end
+                            } else {
+                                self.selection.start
+                            };
+                        }
+                        Ok(None)
+                    },
+                    Ok(Command::Move(mo)) => {
+                        if let Some(buf) = state.write().unwrap().current_buffer_mut() {
+                            let Range { start: _, end } = mo.range(buf, buf.cursor_index, 1);
+                            if self.side {
+                                self.selection.end = end;
+                            } else {
+                                self.selection.start = end;
+                            }
+                            buf.cursor_index = end;
+                        }
+                        self.pending_buf.clear();
+                        Ok(None)
+                    },
                     Ok(cmd) => {
                         let res = {
                             match cmd.execute(&mut state.write().unwrap(), client) {
@@ -282,9 +298,9 @@ impl Mode for VisualMode {
                         };
                         self.pending_buf.clear();
                         match res {
-                            None | Some(ModeTag::Normal) => Ok(None),
+                            Some(ModeTag::Visual) => Ok(None),
                             Some(ModeTag::Command) => Ok(Some(Box::new(CommandMode::new()))),
-                            Some(ModeTag::Visual) => Ok(Some(Box::new(VisualMode::new()))),
+                            None | Some(ModeTag::Normal) => Ok(Some(Box::new(NormalMode::new()))),
                             Some(ModeTag::Insert) => {
                                 let mut state = state.write().unwrap();
                                 if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {

@@ -40,11 +40,13 @@ pub enum Command {
     },
     Leader(char),
     Viewport(ViewportMotion),
-    ChangeMode(ModeTag)
+    ChangeMode(ModeTag),
+    VisualSwitchSides
 }
 
 impl Command {
-    pub fn parse(s: &str) -> Result<Command, Error> {
+    pub fn parse(s: &str) -> Result<Command, Error> { Self::parse_2(s, None) }
+    pub fn parse_2(s: &str, visual_mode: Option<Motion>) -> Result<Command, Error> {
         let mut target_reg: Option<char> = None;
         let mut schars = s.chars().peekable();
         match schars.peek() {
@@ -64,6 +66,7 @@ impl Command {
                 mo: Motion { count: 1, mo: MotionType::EndOfLine },
                 op_count: 1, target_register: '"'
             }),
+            Some('o') if visual_mode.is_some() => return Ok(Command::VisualSwitchSides),
             Some('o') => return Ok(Command::Edit {
                 op: Operator::NewLineAndEnterMode(Direction::Forward, ModeTag::Insert),
                 mo: Motion { count: 1, mo: MotionType::Line(Direction::Forward) },
@@ -107,18 +110,18 @@ impl Command {
             Some('>') => Some(Operator::Indent(Direction::Forward)),
             Some('x') => return Ok(Command::Edit {
                 op: Operator::Delete, op_count: opcount.unwrap_or(1), 
-                mo: Motion { count: 1, mo: MotionType::Char(Direction::Forward) },
+                mo: visual_mode.unwrap_or(Motion { count: 1, mo: MotionType::Char(Direction::Forward) }),
                 target_register: target_reg.unwrap_or('"')
             }),
             Some('p') => return Ok(Command::Put {
                 count: opcount.unwrap_or(1), 
                 source_register: target_reg.unwrap_or('"'),
-                clear_register: true
+                clear_register: false
             }),
             Some('P') => return Ok(Command::Put {
                 count: opcount.unwrap_or(1), 
                 source_register: target_reg.unwrap_or('"'),
-                clear_register: false
+                clear_register: true
             }),
             Some(' ') => { schars.next(); return match schars.next() {
                 Some(c) => Ok(Command::Leader(c)),
@@ -136,7 +139,10 @@ impl Command {
         };
         let mut opchar = None;
         if op.is_some() { opchar = schars.next(); }
-        let mut mo = Motion::parse(&mut schars, opchar, s)?;
+        let mut mo = match visual_mode {
+            Some(mo) if op.is_some() => mo,
+            Some(_) | None => Motion::parse(&mut schars, opchar, s)?
+        };
         if op.is_some() {
             Ok(Command::Edit {
                 op: op.unwrap(),
@@ -287,6 +293,7 @@ impl Command {
                     Operator::MoveAndEnterMode(mode) => {
                         let Range { start: _, end } = mo.range(buf, buf.cursor_index, 1);
                         buf.cursor_index = end;
+                        if mo.mo.inclusive() { buf.cursor_index += 1; }
                         Ok(Some(*mode))
                     },
                     Operator::NewLineAndEnterMode(dir, mode) => {

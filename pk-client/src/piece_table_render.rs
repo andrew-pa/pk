@@ -130,9 +130,24 @@ impl PieceTableRenderer {
         rx.set_color(config.colors.foreground);
         cur_pos.x += self.em_bounds.w * 7.0;
     }
+    
+    fn paint_visual_selection(&mut self, rx: &mut RenderContext, config: &Config, cur_pos: &Point, layout: &TextLayout, cur_range: Range<usize>, sel_range: &Range<usize>) {
+        if sel_range.start < cur_range.start && sel_range.end < cur_range.start { return; } // skip if the selection is totally before the current range
+        if sel_range.start > cur_range.end   && sel_range.end > cur_range.end   { return; } // skip if the selection is totally after the current range
+        let start = cur_range.start.max(sel_range.start);
+        let end   = cur_range.end  .min(sel_range.end);
+        if start >= end { return; }
+        let start_rect = layout.char_bounds(start - cur_range.start);
+        let end_rect = layout.char_bounds(end - cur_range.start);
+        let r = Rect::pnwh(*cur_pos + Point::xy(start_rect.x, 0.0), end_rect.x-start_rect.x + end_rect.w, start_rect.h.max(end_rect.h));
+        rx.set_color(config.colors.three_quarter_gray.with_alpha(0.4));
+        rx.fill_rect(r);
+        rx.set_color(config.colors.foreground);
+    }
 
-    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable, viewport_start: usize, cursor_index: usize,
-                 config: &Config, bounds: Rect, highlights: Option<&Vec<Highlight>>, line_numbers: bool)
+    pub fn paint(&mut self, rx: &mut RenderContext, table: &PieceTable,
+                 viewport_start: usize, cursor_index: usize, config: &Config, bounds: Rect,
+                 highlights: Option<&Vec<Highlight>>, line_numbers: bool, selection: Option<&Range<usize>>)
     {
         rx.set_color(config.colors.foreground);
         let mut global_index = 0usize;
@@ -162,6 +177,10 @@ impl PieceTableRenderer {
                 
                 let layout = self.generate_line_layout(ln, global_index, rx, &config.colors, highlights);
                 rx.draw_text_layout(cur_pos, &layout);
+                
+                if selection.is_some() {
+                    self.paint_visual_selection(rx, config, &mut cur_pos, &layout, global_index .. global_index+ln.len(), selection.as_ref().unwrap());
+                }
                 
                 if cursor_index >= global_index && cursor_index < global_index+ln.len() ||
                     ((lni.peek().is_some() || cursor_index == table_len) && cursor_index == global_index+ln.len()) {
