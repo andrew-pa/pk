@@ -319,7 +319,9 @@ pub struct EditorState {
     pub panes: BTreeMap<usize, Pane>,
     pub current_pane: usize,
 
-    pub last_command: Option<crate::command::Command>
+    pub last_command: Option<crate::command::Command>,
+    
+    pub line_command_history: Vec<String>
 }
 
 pub struct ClientState {
@@ -348,7 +350,8 @@ impl EditorState {
             panes: BTreeMap::new(),
             current_pane: 0,
             registers: BTreeMap::new(),
-            last_command: None
+            last_command: None,
+            line_command_history: Vec::new()
         }
     }
 

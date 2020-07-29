@@ -1095,8 +1095,10 @@ dependencies = [
 name = "pk-server"
 version = "0.4.0"
 dependencies = [
+ "directories-next",
  "nng",
  "nng-sys",
+ "pico-args",
  "pk-common",
  "serde",
  "serde_cbor",

@@ -267,7 +267,7 @@ fn main() -> Result<(), ServerError> {
 
     //let pool = threadpool::ThreadPool::new(8);
     let filetype_table = toml::from_str(&std::fs::read_to_string("./filetypes.toml")?).expect("parse filetype table");
-    println!("filetypes = {:?}", filetype_table);
+    //println!("filetypes = {:?}", filetype_table);
     let server = Arc::new(RwLock::new(Server::new(filetype_table)));
 
     let ts = (0..8).map(|_| {
@@ -278,6 +278,8 @@ fn main() -> Result<(), ServerError> {
         Ok((aio, mcx))
 
     }).collect::<Vec<nng::Result<_>>>();
+    
+    println!("listening on {}", &server_address);
 
     socket.listen(&server_address)?;
 

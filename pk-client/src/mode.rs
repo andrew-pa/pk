@@ -334,6 +334,7 @@ pub struct CommandMode {
     cursor_mutator: TableMutator,
     commands: Vec<(regex::Regex, Rc<dyn line_command::CommandFn>)>,
     cursor_index: usize,
+    history_index: usize,
     command_line: PieceTable
 }
 
@@ -347,6 +348,7 @@ impl CommandMode {
             cursor_mutator,
             command_line: pt,
             cursor_index: len,
+            history_index: 0,
             commands: vec![
                 (Regex::new("^test (.*)").unwrap(), Rc::new(TestCommand)),
                 (Regex::new("^dbg pt").unwrap(), Rc::new(DebugPieceTableCommand)),
@@ -370,6 +372,18 @@ impl CommandMode {
             Direction::Backward => "?"
         }))
     }
+    
+    fn load_history_cmd(&mut self, es: PEditorState) {
+        let hist = &es.read().unwrap().line_command_history;
+        let tx = if self.history_index == 0 {
+            ""
+        } else {
+            &hist[hist.len() - self.history_index]
+        };
+        self.command_line = PieceTable::with_text(tx);
+        self.cursor_mutator = self.command_line.insert_mutator(tx.len());
+        self.cursor_index = tx.len();
+    }
 }
 
 impl Mode for CommandMode {
@@ -384,6 +398,7 @@ impl Mode for CommandMode {
     fn cmd_line(&self) -> Option<(usize, &PieceTable)> {
         Some((self.cursor_index, &self.command_line))
     }
+    
     
     fn event(&mut self, e: Event, cs: PClientState, es: PEditorState) 
         -> ModeEventResult
@@ -403,8 +418,18 @@ impl Mode for CommandMode {
                         Ok(None)
                     },
                     VirtualKeyCode::Right => {
-                        self.cursor_index = (self.cursor_index+1).max(pending_command.len());
+                        self.cursor_index = (self.cursor_index+1).min(pending_command.len());
                         self.cursor_mutator = pending_command.insert_mutator(self.cursor_index);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Up => {
+                        {self.history_index = (self.history_index + 1).min(es.read().unwrap().line_command_history.len());}
+                        self.load_history_cmd(es);
+                        Ok(None)
+                    },
+                    VirtualKeyCode::Down => {
+                        self.history_index = self.history_index.saturating_sub(1);
+                        self.load_history_cmd(es);
                         Ok(None)
                     },
                     VirtualKeyCode::Back => {
@@ -414,6 +439,7 @@ impl Mode for CommandMode {
                     },
                     VirtualKeyCode::Return => {
                         let cmdstr = self.command_line.text();
+                        { es.write().unwrap().line_command_history.push(cmdstr.clone()); }
                         if let Some((cmdix, args)) = self.commands.iter().enumerate()
                             .filter_map(|(i,cmd)| cmd.0.captures(&cmdstr).map(|c| (i, c))).nth(0)
                         {

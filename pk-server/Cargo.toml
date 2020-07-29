@@ -4,8 +4,6 @@ version = "0.4.0"
 authors = ["Andrew Palmer <andrew.pa@outlook.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 nng = "0.5"
 pk-common = { path = "../pk-common" }
@@ -13,6 +11,10 @@ serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 threadpool = "1"
 toml = "0.5"
+directories-next = "1"
+pico-args = "0.3"
 
-[dependencies.nng-sys]
+# fix nng-sys build on Windows 
+[target.'cfg(windows)'.dependencies.nng-sys]
+version = "1.1.1-rc"
 features = ["cmake-vs2019"]

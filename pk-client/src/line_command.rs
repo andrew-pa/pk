@@ -143,11 +143,14 @@ impl CommandFn for SearchCommand {
         let mut es = es.write().unwrap();
         let cb = es.current_buffer_mut().unwrap();
         cb.set_query(args.get(2).unwrap().as_str().into());
-        cb.cursor_index = cb.next_query_index(cb.cursor_index, match args.get(1).unwrap().as_str() {
+        match cb.next_query_index(cb.cursor_index, match args.get(1).unwrap().as_str() {
             "/" => Direction::Forward,
             "?" => Direction::Backward,
             _ => panic!()
-        }, true).unwrap();
+        }, true) {
+            Some(ix) => cb.cursor_index = ix,
+            None => ClientState::process_usr_msgp(cs, UserMessage::error(format!("no matches for \"{}\"", args.get(2).unwrap().as_str()), None))
+        }
         Ok(Some(Box::new(NormalMode::new())))
     }
 }
