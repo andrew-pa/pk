@@ -351,6 +351,7 @@ impl CommandMode {
             history_index: 0,
             commands: vec![
                 (Regex::new("^test (.*)").unwrap(), Rc::new(TestCommand)),
+                (Regex::new("^q").unwrap(), Rc::new(QuitCommand)),
                 (Regex::new("^dbg pt").unwrap(), Rc::new(DebugPieceTableCommand)),
                 (Regex::new("^dbg rg").unwrap(), Rc::new(DebugRegistersCommand)),
                 (Regex::new(r#"^e\s+(?:(?P<server_name>\w+):)?(?P<path>.*)"#).unwrap(), Rc::new(EditFileCommand)),

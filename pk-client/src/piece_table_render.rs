@@ -125,7 +125,7 @@ impl PieceTableRenderer {
     
     fn paint_line_numbers(&mut self, rx: &mut RenderContext, config: &Config, cur_pos: &mut Point, line_num: usize) {
         rx.set_color(config.colors.quarter_gray);
-        rx.draw_text(Rect::xywh(cur_pos.x, cur_pos.y, self.em_bounds.w*5.0, self.em_bounds.h),
+        rx.draw_text(Rect::xywh(cur_pos.x, cur_pos.y, self.em_bounds.w*5.0 + 10.0, self.em_bounds.h),
             &format!("{:5}", line_num), &self.fnt);
         rx.set_color(config.colors.foreground);
         cur_pos.x += self.em_bounds.w * 7.0;
@@ -200,6 +200,7 @@ impl PieceTableRenderer {
                     // new line
                     line_num+=1;
                     cur_pos.x = bounds.x;
+                    // paint the line numbers for the line that we just drawed
                     if line_numbers { self.paint_line_numbers(rx, config, &mut cur_pos, line_num); }
                     cur_pos.y += text_size.h.min(self.em_bounds.h);
                     global_index += 1;

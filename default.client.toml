@@ -1,0 +1,64 @@
+# place this file in $CONFIG_DIR/pk/client.toml
+# see https://crates.io/crates/directories-next for where $CONFIG_DIR is on your system
+# this represents the default configuration settings
+
+# this removes the 'local' server so we can add it back in again
+no-local-server = true
+
+[[autoconnect]]
+name = "local"
+url = "ipc://pk" # any valid NNG url will work, so long as there is a server listening
+
+[font]
+name = "Consolas"
+size = 14.0
+
+[tabs]
+soft-tab = true
+tabstop = 4
+
+[colors]
+background = "000000"
+foreground = "fefefe"
+
+quarter-gray = "404040"
+half-gray = "808080"
+three-quarter-gray = "c0c0c0"
+
+# there must be 8 accent colors, but they don't necessarily have to match the commented
+# color names, that is just what the defaults are so you have an idea of what accents go where
+accents = [
+    "ff2800", #red
+    "ff9a21", #orange
+    "ffdc00", #yellow
+    "00ff77", #green
+    "3ff2ee", #aqua
+    "3fc2ff", #blue
+    "8000ff", #purple
+    "c000ff"  #magenta
+]
+
+# these rules map syntax scopes (like in Sublime, Texmate) to colors in the color scheme
+# bare numbers are accent colors
+syntax-coloring = [
+    { scope = "comment", style = "half-gray" },
+    { scope = "string", style = 3 },
+    { scope = "number, constant", style = 1 },
+    { scope = "punctuation", style = "foreground" },
+    { scope = "variable", style = "foreground" },
+    { scope = "variable.function, entity.name.function", style = 6 },
+    { scope = "variable.language", style = 1 },
+    { scope = "keyword", style = 0 },
+    { scope = "meta.import keyword, keyword.control.import, keyword.other.import", style = 0 },
+    { scope = "keyword.operator", style = 4 },
+    { scope = "storage", style = 0 },
+    { scope = "storage.modifier", style = 3 },
+    { scope = "storage.type", style = 0 },
+    { scope = "entity.name", style = 6 },
+    { scope = "keyword.other.special-method", style = 1 },
+    { scope = "keyword.control.class, entity.name, entity.name.class, entity.name.type.class", style = 6 },
+    { scope = "support.type", style = 1 },
+    { scope = "support, support.class", style = 6 },
+    { scope = "meta.path", style = 5 },
+]
+

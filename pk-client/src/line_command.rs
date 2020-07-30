@@ -19,6 +19,15 @@ impl CommandFn for TestCommand {
     }
 }
 
+pub struct QuitCommand;
+
+impl CommandFn for QuitCommand {
+    fn process(&self, cs: PClientState, _: PEditorState, _: &regex::Captures) -> mode::ModeEventResult {
+        cs.write().unwrap().should_exit = true;
+        Ok(Some(Box::new(NormalMode::new())))
+    }
+}
+
 pub struct DebugPieceTableCommand;
 
 impl CommandFn for DebugPieceTableCommand {

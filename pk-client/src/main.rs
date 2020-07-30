@@ -71,23 +71,27 @@ struct PkApp {
     client: PClientState,
     synh: Option<Vec<piece_table_render::Highlight>>,
     last_highlighted_version: usize,
-    highlighter: syntax_highlight::Highlighter
-}
-
-impl runic::App for PkApp {
-    fn init(rx: &mut RenderContext) -> Self {
-        let mut cargs = pico_args::Arguments::from_env();
-
-        let projd = directories_next::ProjectDirs::from("", "", "pk").expect("compute application directory");
-        let config_dir = cargs.opt_value_from_str("--config").unwrap()
-            .unwrap_or_else(|| std::path::Path::join(projd.config_dir(), "client.toml"));
-        let (config, errmsg) = std::fs::read_to_string(config_dir).map_or_else(|e| {
-                (Config::default(), if e.kind() != std::io::ErrorKind::NotFound { Some(UserMessage::error(
-                            format!("error loading configuration file: {}", e), None)) } else { None })
-            }, |v|  v.parse::<toml::Value>().map_err(Error::from_other).and_then(Config::from_toml).map_or_else(|e| {
-                (Config::default(), Some(UserMessage::error(
-                            format!("error parsing configuration file: {}", e), None)))
-            }, |v| (v, None)));
+        highlighter: syntax_highlight::Highlighter
+    }
+    
+    impl runic::App for PkApp {
+        fn init(rx: &mut RenderContext) -> Self {
+            let mut cargs = pico_args::Arguments::from_env();
+        
+        let (config, errmsg) = if cargs.contains("--default-config") {
+            (Config::default(), None)
+        } else {
+            let projd = directories_next::ProjectDirs::from("", "", "pk").expect("compute application directory");
+            let config_dir = cargs.opt_value_from_str("--config").unwrap()
+                .unwrap_or_else(|| std::path::Path::join(projd.config_dir(), "client.toml"));
+            std::fs::read_to_string(config_dir).map_or_else(|e| {
+                    (Config::default(), if e.kind() != std::io::ErrorKind::NotFound { Some(UserMessage::error(
+                                format!("error loading configuration file: {}", e), None)) } else { None })
+                }, |v|  v.parse::<toml::Value>().map_err(Error::from_other).and_then(Config::from_toml).map_or_else(|e| {
+                    (Config::default(), Some(UserMessage::error(
+                                format!("error parsing configuration file: {}", e), None)))
+            }, |v| (v, None)))
+        };
 
         let mut client = ClientState::with_config(config.clone());
         let mut estate = EditorState::new();
@@ -149,7 +153,9 @@ impl runic::App for PkApp {
             *should_redraw = true;
             self.client.write().unwrap().force_redraw = false;
         }
-
+        if self.client.read().unwrap().should_exit {
+            *event_loop_flow = ControlFlowOpts::Exit;
+        }
         match e {
             Event::CloseRequested => *event_loop_flow = ControlFlowOpts::Exit,
             _ => {

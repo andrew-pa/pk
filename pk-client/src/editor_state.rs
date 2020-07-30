@@ -330,6 +330,7 @@ pub struct ClientState {
     pub servers: HashMap<String, Server>,
 
     pub force_redraw: bool,
+    pub should_exit: bool,
 
     pub usrmsgs: Vec<UserMessage>,
     pub selected_usrmsg: usize,
@@ -402,6 +403,7 @@ impl ClientState {
             thread_pool: ThreadPoolBuilder::new().create().unwrap(),
             servers: HashMap::new(),
             force_redraw: false,
+            should_exit: false,
             usrmsgs: Vec::new(),
             selected_usrmsg: 0,
             config
@@ -437,20 +439,20 @@ impl ClientState {
     pub fn make_request_async<F>(state: PClientState, server_name: impl AsRef<str>, request: protocol::Request, f: F)
         where F: FnOnce(PClientState, protocol::Response) + Send + Sync + 'static
     {
-        let tp = {state.read().unwrap().thread_pool.clone()};
+        let mut cs = state.write().unwrap();
         let req_fut = match {
             //println!("a {:?}", std::time::Instant::now());
-            state.write().unwrap().servers.get_mut(server_name.as_ref())
+            cs.servers.get_mut(server_name.as_ref())
                 .ok_or(Error::InvalidCommand(String::from("server name ") + server_name.as_ref() + " is unknown"))
         } {
             Ok(r) => r.request(request),
             Err(e) => {
-                state.write().unwrap().process_error(e);
+                cs.process_error(e);
                 return;
             }
         };
         let ess = state.clone();
-        tp.spawn_ok(req_fut.then(move |resp: protocol::Response| async move
+        cs.thread_pool.spawn_ok(req_fut.then(move |resp: protocol::Response| async move
         {
             match resp {
                 protocol::Response::Error { message } => {

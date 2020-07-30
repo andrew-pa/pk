@@ -63,7 +63,7 @@ impl Default for Colorscheme {
             quarter_gray: Color::rgb(0.25, 0.25, 0.25),
             half_gray: Color::rgb(0.5, 0.5, 0.5),
             three_quarter_gray: Color::rgb(0.75, 0.75, 0.75),
-            foreground: Color::white(),
+            foreground: color_from_hex("fefefe").unwrap(),
 
             accent: [
                 color_from_hex("ff2800").unwrap(), //red 0
@@ -206,8 +206,6 @@ impl Config {
         }
 
         cfg.syntax_coloring = val.get("syntax-coloring").cloned().or_else(|| Config::default_toml_blob().get("syntax-coloring").cloned());
-        dbg!(&cfg.syntax_coloring);
-
         Ok(cfg)
     }
 }
@@ -216,7 +214,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             autoconnect_servers: vec![("local".into(), "ipc://pk".into())],
-            font: ("Fira Code".into(), 14.0),
+            font: ("Consolas".into(), 14.0),
             tabstop: 4, softtab: true,
             colors: Colorscheme::default(),
             syntax_coloring: Config::default_toml_blob().get("syntax-coloring").cloned()
