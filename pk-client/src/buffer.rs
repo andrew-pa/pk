@@ -1,5 +1,6 @@
 use pk_common::piece_table::*;
 use pk_common::protocol;
+use pk_common::Direction;
 use std::path::PathBuf;
 
 pub struct Buffer {
@@ -13,7 +14,8 @@ pub struct Buffer {
     pub cursor_index: usize,
     pub highlights: Option<Vec<crate::piece_table_render::Highlight>>,
     pub last_highlighted_action_id: usize,
-    pub current_query: Option<String>
+    pub current_query: Option<String>,
+    pub last_char_query: Option<(char, bool, Direction)>
 }
 
 impl Buffer {
@@ -25,7 +27,8 @@ impl Buffer {
             path: "".into(), currently_in_conflict: false, format: protocol::TextFormat::default(),
             highlights: None,
             last_highlighted_action_id: 0,
-            current_query: None
+            current_query: None,
+            last_char_query: None
         }
     }
 
@@ -37,7 +40,8 @@ impl Buffer {
             currently_in_conflict: false, format,
             highlights: None,
             last_highlighted_action_id: 0,
-            current_query: None
+            current_query: None,
+            last_char_query: None
         }
     }
 

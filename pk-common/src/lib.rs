@@ -4,6 +4,15 @@
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Direction { Forward, Backward }
 
+impl Direction {
+    pub fn reverse(self) -> Direction {
+        match self {
+            Direction::Forward => Direction::Backward,
+            Direction::Backward => Direction::Forward
+        }
+    }
+}
+
 pub mod piece_table;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

@@ -214,6 +214,7 @@ impl Motion {
                 match c.peek() {
                     Some('e') => MotionType::EndOfWord(Direction::Backward),
                     Some('E') => MotionType::EndOfBigWord(Direction::Backward),
+                    Some(';') => MotionType::RepeatNextChar { opposite: true },
                     Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
                     None => return Err(Error::IncompleteCommand)
                 }
@@ -262,7 +263,8 @@ impl Motion {
                     _ => unreachable!()
                 }
             },
-            Some(';') => MotionType::RepeatNextChar { opposite: true },
+            Some(';') => MotionType::RepeatNextChar { opposite: false },
+            Some(',') => MotionType::RepeatNextChar { opposite: true },
             Some(c) if opchar.map(|opc| opc == *c).unwrap_or(false)
                 => MotionType::WholeLine,
             Some(_) => return Err(Error::UnknownCommand(String::from(wholecmd))),
@@ -275,7 +277,7 @@ impl Motion {
         })
     }
 
-    pub fn range(&self, buf: &Buffer, cursor_index: usize, multiplier: usize) -> Range<usize> {
+    pub fn range(&self, buf: &mut Buffer, cursor_index: usize, multiplier: usize) -> Range<usize> {
         match &self.mo {
             MotionType::Passthrough(s, e) => return *s .. *e,
             MotionType::An(obj) => {
@@ -434,6 +436,7 @@ impl Motion {
                 },
 
                 MotionType::NextChar { c, place_before, direction } => {
+                    buf.last_char_query = Some((*c, *place_before, *direction));
                     range.end = buf.text.dir_index_of(|cc| cc == *c, match direction {
                         Direction::Forward => range.end+1,
                         Direction::Backward => range.end-1
@@ -443,6 +446,25 @@ impl Motion {
                             Direction::Forward => range.end -= 1,
                             Direction::Backward => range.end += 1,
                         }
+                    }
+                },
+                
+                MotionType::RepeatNextChar { opposite } => {
+                    if let Some((c, place_before, direction)) = buf.last_char_query {
+                        range = (Motion {
+                            count: self.count,
+                            mo: MotionType::NextChar {
+                                c, place_before,
+                                direction: if *opposite {
+                                    direction.reverse()
+                                } else {
+                                    direction
+                                }
+                            }
+                        }).range(buf, cursor_index, multiplier);
+                        buf.last_char_query = Some((c, place_before, direction));
+                    } else {
+                        // can't fail but probably the user would like to know what's going on
                     }
                 },
 

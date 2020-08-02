@@ -179,7 +179,7 @@ impl Command {
                             if let piece_table::Change::Insert { new, .. } = act.changes[if act.changes.len() == 1 { 0 } else { 1 }] {
                                 new
                             } else {
-                                panic!();
+                                panic!("couldn't find text to reinsert {:?}", buf.text.history.last());
                             }
                         },
                         None => panic!()
@@ -313,7 +313,12 @@ impl Command {
                     Operator::Indent(direction) => {
                         let r = mo.range(buf, buf.cursor_index, *op_count);
                         let mut ln = buf.current_start_of_line(r.start);
-                        while ln < r.end {
+                        let end = buf.current_start_of_line(match *direction {
+                            Direction::Forward => r.end,
+                            Direction::Backward => r.end - 1
+                        } + if mo.mo.inclusive() { 1 } else { 0 });
+                        dbg!(end);
+                        while ln <= end {
                             println!("ln = {}, r = {:?}", ln, r);
                             if *direction == Direction::Forward {
                                 buf.indent(ln, 1, &client.read().unwrap().config);
