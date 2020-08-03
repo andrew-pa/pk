@@ -16,8 +16,11 @@ pub enum Operator {
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ViewportMotion {
+    CursorToTop,
     CursorToMiddle,
-    Line(Direction, usize)
+    CursorToBottom,
+    Line(Direction, usize),
+    ToggleScrollLock
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -129,6 +132,9 @@ impl Command {
             } },
             Some('z') => { schars.next(); return match schars.next() {
                 Some('z') => Ok(Command::Viewport(ViewportMotion::CursorToMiddle)),
+                Some('t') => Ok(Command::Viewport(ViewportMotion::CursorToTop)),
+                Some('b') => Ok(Command::Viewport(ViewportMotion::CursorToBottom)),
+                Some('s') => Ok(Command::Viewport(ViewportMotion::ToggleScrollLock)),
                 Some('j') => Ok(Command::Viewport(ViewportMotion::Line(Direction::Forward, opcount.unwrap_or(1)))),
                 Some('k') => Ok(Command::Viewport(ViewportMotion::Line(Direction::Backward, opcount.unwrap_or(1)))),
                 Some(_) => Err(Error::UnknownCommand(String::from(s))),
@@ -317,15 +323,16 @@ impl Command {
                             Direction::Forward => r.end,
                             Direction::Backward => r.end - 1
                         } + if mo.mo.inclusive() { 1 } else { 0 });
-                        dbg!(end);
                         while ln <= end {
-                            println!("ln = {}, r = {:?}", ln, r);
+                            //println!("ln = {}, r = {:?}", ln, r);
                             if *direction == Direction::Forward {
                                 buf.indent(ln, 1, &client.read().unwrap().config);
                             } else {
                                 buf.undent(ln, 1, &client.read().unwrap().config);
                             }
-                            ln = buf.next_line_index(ln);
+                            let nln = buf.next_line_index(ln);
+                            if ln == nln { break; }
+                            ln = nln;
                         }
                         Ok(None)
                     }, 
@@ -367,14 +374,20 @@ impl Command {
             },
             
             Command::Viewport(mo) => match mo {
-                ViewportMotion::CursorToMiddle => {
+                ViewportMotion::CursorToMiddle | ViewportMotion::CursorToTop | ViewportMotion::CursorToBottom => {
                     let curln = if let Some(buf) = state.current_buffer() {
                         buf.line_for_index(buf.cursor_index)
                     } else {
                         return Err(Error::InvalidCommand("can't move viewport on non-buffer pane".into()));
                     };
                     if let PaneContent::Buffer { viewport_start, viewport_end, .. } = &mut state.current_pane_mut().content {
-                        *viewport_start = curln.saturating_sub((*viewport_end - *viewport_start)/2);
+                        if let ViewportMotion::CursorToMiddle = mo {
+                            *viewport_start = curln.saturating_sub((*viewport_end - *viewport_start)/2);
+                        } else if let ViewportMotion::CursorToTop = mo {
+                            *viewport_start = curln;
+                        } else {
+                            *viewport_start = viewport_start.saturating_sub(*viewport_end - curln);
+                        }
                     }
                     Ok(None)    
                 },
@@ -391,6 +404,13 @@ impl Command {
                     } else {
                         return Err(Error::InvalidCommand("can't move viewport on non-buffer pane".into()));
                     };
+                    Ok(None)
+                },
+                
+                ViewportMotion::ToggleScrollLock => {
+                    if let PaneContent::Buffer { scroll_lock, .. } = &mut state.current_pane_mut().content {
+                        *scroll_lock = !*scroll_lock;
+                    }
                     Ok(None)
                 }
             },

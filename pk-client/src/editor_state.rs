@@ -55,14 +55,15 @@ pub enum PaneContent {
     Buffer {
         buffer_index: usize,
         viewport_start: usize,
-        viewport_end: usize
+        viewport_end: usize,
+        scroll_lock: bool
     }
 }
 
 impl PaneContent {
     pub fn buffer(buffer_index: usize) -> PaneContent {
         PaneContent::Buffer {
-            buffer_index, viewport_start: 0, viewport_end: 0
+            buffer_index, viewport_start: 0, viewport_end: 0, scroll_lock: true
         }
     }
 }

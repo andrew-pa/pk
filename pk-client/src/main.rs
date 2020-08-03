@@ -234,7 +234,7 @@ struct PkApp {
             rx.stroke_rect(bounds, 1.0);
 
             match state.panes[&i].content {
-                PaneContent::Buffer { buffer_index, viewport_start, .. } => {
+                PaneContent::Buffer { buffer_index, viewport_start, scroll_lock, .. } => {
                     let buf = &mut state.buffers[buffer_index];
                     let editor_bounds = Rect::xywh(bounds.x, bounds.y + self.txr.em_bounds.h + 4.0, bounds.w,
                                                        bounds.h);
@@ -245,15 +245,16 @@ struct PkApp {
                     rx.fill_rect(Rect::xywh(bounds.x, bounds.y, bounds.w, self.txr.em_bounds.h+2.0));
                     rx.set_color(if active { config.colors.accent[1] } else { config.colors.three_quarter_gray });
                     rx.draw_text(Rect::xywh(bounds.x + 8.0, bounds.y + 1.0, bounds.w, 1000.0),
-                        &format!("{} | ln {} col {} | {}:{} v{}{} [{}]", self.mode, curln + 1,
+                        &format!("{} | ln {} col {} {}| {}:{} v{}{} [{}]", self.mode, curln + 1,
                             buf.column_for_index(buf.cursor_index),
+                            if !scroll_lock { "!L " } else { "" },
                             buf.server_name, buf.path.to_str().unwrap_or("!"), buf.version,
                             if buf.currently_in_conflict { "⮾" } else { "" }, buf.format.stype
                     ), &self.fnt);
 
                     self.txr.cursor_style = if active { self.mode.cursor_style() } else { CursorStyle::Box };
                     let mut vp = viewport_start;
-                    self.txr.ensure_line_visible(&mut vp, curln, editor_bounds);
+                    if scroll_lock { self.txr.ensure_line_visible(&mut vp, curln, editor_bounds); }
                     if buf.highlights.is_none() || buf.last_highlighted_action_id < buf.text.most_recent_action_id() 
                         || self.mode.mode_tag() == ModeTag::Insert
                     {
@@ -277,7 +278,7 @@ struct PkApp {
                      }*/
                     state.panes.get_mut(&i).unwrap().content = PaneContent::Buffer {
                         buffer_index,
-                        viewport_start: vp,
+                        viewport_start: vp, scroll_lock,
                         viewport_end: self.txr.viewport_end(vp, &editor_bounds)
                     };
                 },
