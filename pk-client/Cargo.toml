@@ -1,14 +1,13 @@
 [package]
 name = "pk-client"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Andrew Palmer <andrew.pa@outlook.com>"]
 edition = "2018"
 
 [dependencies]
 nng = "0.5"
 pk-common = { path = "../pk-common" }
-uproc = { path = "../uproc" }
-runic = { path = "../../runic", version = "0.8" }
+runic = { git = "https://github.com/andrew-pa/runic", version = "0.8" }
 regex = "1"
 lazy_static = "1"
 serde = { version = "1", features = ["derive"] }
