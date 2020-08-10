@@ -3,6 +3,8 @@
 A Vim-like text editor for the modern age. The goal of Pk is to provide a clean, fast editing/coding experience that works just as well
 remotely as it does locally.  
 
+![demo of editing in Pk](demo.gif)
+
 Pk is currently in alpha - it definitly is not perfect! However it is decently usable for editing, and in fact has been used for its own 
 development for a time now.
 
