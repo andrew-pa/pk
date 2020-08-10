@@ -215,7 +215,20 @@ impl Command {
                 state.last_command = Some(*self);
                 if let Some(buf) = state.current_buffer_index() {
                     let buf = &mut state.buffers[buf];
-                    let src = state.registers.get(source_register).ok_or(Error::EmptyRegister(*source_register))?;
+                    let src = match source_register {
+                        '*' => {
+                            use copypasta::ClipboardProvider;
+                            match copypasta::ClipboardContext::new().and_then(|mut cb| cb.get_contents()) {
+                                Ok(snip) => snip,
+                                Err(e) => {
+                                    ClientState::process_usr_msgp(client,
+                                        UserMessage::error(format!("error getting clipboard contents: {}", e), None));
+                                    return Ok(None);
+                                }
+                            }
+                        },
+                        srg => state.registers.get(srg).ok_or(Error::EmptyRegister(*source_register))?.clone()
+                    };
                     // we need to check here to see if src contains a full line so that we can put it _after_ the current line
                     let insertion_point = if let Some('\n') = src.chars().last() {
                         //println!("X");
@@ -223,7 +236,7 @@ impl Command {
                     } else {
                         buf.cursor_index
                     };
-                    buf.text.insert_range(src, insertion_point);
+                    buf.text.insert_range(&src, insertion_point);
                     buf.cursor_index = insertion_point + src.len().saturating_sub(1);
                     if *clear_register {
                         state.registers.remove(source_register);
@@ -286,7 +299,17 @@ impl Command {
                         if mo.mo.inclusive() {
                             r.end += 1;
                         }
-                        state.registers.insert(*target_register, buf.text.copy_range(r.start, r.end));
+                        let txt = buf.text.copy_range(r.start, r.end);
+                        if *target_register == '*' {
+                            use copypasta::ClipboardProvider;
+                            match copypasta::ClipboardContext::new().and_then(|mut cb| cb.set_contents(txt)) {
+                                Ok(()) => {},
+                                Err(e) => ClientState::process_usr_msgp(client,
+                                    UserMessage::error(format!("error getting clipboard contents: {}", e), None)),
+                            }
+                        } else {
+                            state.registers.insert(*target_register, txt);
+                        }
                         Ok(None)
                     },
                     Operator::ReplaceChar(c) => {

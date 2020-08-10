@@ -94,6 +94,12 @@ impl TableMutator {
         pt.sources[si].pop();
         false
     }
+    
+    pub fn push_str(&mut self, pt: &mut PieceTable, s: &str) {
+        pt.pieces[self.piece_ix].length += s.len();
+        let si = pt.pieces[self.piece_ix].source;
+        pt.sources[si].push_str(s);
+    }
 
     pub fn finish(mut self, pt: &mut PieceTable) {
         // slightly jank fix to make sure that the history item gets updated with the new piece length
@@ -575,6 +581,10 @@ impl<'table> PieceTable {
         }
         panic!("tried to start char iterator out of bounds");
     }
+    
+    pub fn round_to_grapheme_boundary(&self, index: usize, dir: Direction) -> usize {
+        index
+    }
 
     pub fn text(&self) -> String {
         let mut s = String::with_capacity(self.len());
@@ -928,6 +938,12 @@ mod tests {
             assert_eq!(a, b);
             if a.is_none() && b.is_none() { break; }
         }
+    }
+    
+    #[test]
+    fn grapheme_rounding() {
+        let mut pt = PieceTable::with_text("tèst 🧪 test!");
+        
     }
 }
 

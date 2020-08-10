@@ -128,13 +128,20 @@ impl Mode for NormalMode {
 
 pub struct InsertMode {
     tmut: Option<piece_table::TableMutator>,
-    shift_pressed: bool
+    ctrl_pressed: bool,
+    shift_pressed: bool,
+    clipboard: Option<copypasta::ClipboardContext>
 }
 
 impl InsertMode {
     fn new(tmut: piece_table::TableMutator) -> InsertMode {
         InsertMode {
-            tmut: Some(tmut), shift_pressed: false
+            tmut: Some(tmut),
+            shift_pressed: false,
+            ctrl_pressed: false,
+            clipboard: copypasta::ClipboardContext::new()
+                // this should really probably be a user error message instead of just dumping into stdout
+                .map_or_else(|e| { println!("error getting clipboard: {}", e); None }, |cx| Some(cx))
         }
     }
 }
@@ -153,6 +160,7 @@ impl Mode for InsertMode {
     }
 
     fn event(&mut self, e: Event, client: PClientState, state: PEditorState) -> ModeEventResult {
+        use copypasta::ClipboardProvider;
         let mut state = state.write().unwrap();
         if let PaneContent::Buffer { buffer_index, .. } = state.current_pane().content {
             let buf = &mut state.buffers[buffer_index];
@@ -164,12 +172,23 @@ impl Mode for InsertMode {
                 },
                 Event::ModifiersChanged(ms) => {
                     self.shift_pressed = ms.shift();
+                    self.ctrl_pressed = ms.ctrl();
                     Ok(None)
                 },
                 Event::KeyboardInput {
                     input: KeyboardInput { virtual_keycode: Some(vk), state: ElementState::Pressed, .. }, ..
                 } => {
                     match vk {
+                        VirtualKeyCode::V if self.ctrl_pressed => {
+                            match self.clipboard.as_mut().map(|cb| cb.get_contents()) {
+                                Some(Ok(snip)) => self.tmut.as_mut().unwrap().push_str(&mut buf.text, &snip),
+                                Some(Err(e)) => ClientState::process_usr_msgp(client,
+                                    UserMessage::error(format!("error getting clipboard contents: {}", e), None)),
+                                None => ClientState::process_usr_msgp(client,
+                                    UserMessage::warning("no clipboard avaliable!".into(), None))
+                            }
+                            Ok(None)
+                        },
                         VirtualKeyCode::Tab => {
                             let (softtab, tabstop) = {
                                 let cfg = &client.read().unwrap().config;
