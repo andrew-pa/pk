@@ -70,3 +70,5 @@ Pk doesn't yet support any Ex commands (although `/` and `?` work).
 
 Notice the lack of `w`! Pk automatically makes sure that files up-to-date on the filesystem via an autosave mechanism.
 
+Pk © 2020 Andrew Palmer; see LICENSE for legal details.
+
