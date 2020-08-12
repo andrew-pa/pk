@@ -104,7 +104,7 @@ impl Server {
     }
 
     pub fn request(&mut self, msg: protocol::Request) -> impl Future<Output=protocol::Response> {
-        let mut wmsg = nng::Message::new().unwrap();
+        let mut wmsg = nng::Message::new();
         let msg_id = self.next_msg_id;
         serde_cbor::to_writer(&mut wmsg, &protocol::MsgRequest { msg_id, msg }).unwrap();
         let cx = nng::Context::new(&self.socket).map_err(Error::from_other).unwrap();

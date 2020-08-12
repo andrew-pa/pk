@@ -70,9 +70,10 @@ impl CommandFn for BufferCommand {
             .ok_or_else(|| Error::InvalidCommand("expected buffer name".into()))?.as_str();
 
         let mut bufs: Vec<(usize, i64)> = {
-            use fuzzy_matcher::skim::fuzzy_match;
+            use fuzzy_matcher::FuzzyMatcher;
+            let mut matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
             es.read().unwrap().buffers.iter().enumerate()
-                .flat_map(|(i, b)| b.path.to_str().and_then(|p| fuzzy_match(p, name_query)).map(|m| (i, m)))
+                .flat_map(|(i, b)| b.path.to_str().and_then(|p| matcher.fuzzy_match(p, name_query)).map(|m| (i, m)))
                 .collect()
         };
 

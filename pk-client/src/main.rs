@@ -98,7 +98,7 @@ struct PkApp {
         if let Some(em) = errmsg {
             client.process_usr_msg(em);
         }
-
+        
         estate.panes.insert(0, Pane::whole_screen(PaneContent::Empty));
 
         let client = Arc::new(RwLock::new(client));

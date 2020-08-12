@@ -216,7 +216,7 @@ impl Server {
                         msg: protocol::Response::Error { message: format!("error decoding request {}", err) }
                     });
                 // println!("response = {:?}", resp);
-                let mut msg = nng::Message::new().expect("create message");
+                let mut msg = nng::Message::new();
                 serde_cbor::to_writer(&mut msg, &resp).expect("serialize message");
                 cx.send(aio, msg).unwrap();
             },

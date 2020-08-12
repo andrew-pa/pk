@@ -5,7 +5,7 @@ authors = ["Andrew Palmer <andrew.pa@outlook.com>"]
 edition = "2018"
 
 [dependencies]
-nng = "0.5"
+nng = "1.0.0-rc"
 pk-common = { path = "../pk-common" }
 runic = { git = "https://github.com/andrew-pa/runic", version = "0.8" }
 regex = "1"
@@ -20,6 +20,3 @@ fuzzy-matcher = "0.3"
 syntect="4"
 copypasta = "0.7"
 
-[target.'cfg(windows)'.dependencies.nng-sys]
-version = "1.1.1-rc"
-features = ["cmake-vs2019"]
